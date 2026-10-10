@@ -182,7 +182,12 @@ player as "the AI is unavailable", and the slot is returned.
   - ChatGPT and Grok models come from `shared-ai-auth`'s `loadModels()` (cached
     five minutes). New catalog entries are off until the owner enables them.
   - Gemini and OpenRouter models are added by hand: model ID, label, and whether
-    effort is supported.
+    effort is supported. Only free models are accepted: OpenRouter IDs ending
+    in `:free` (or `openrouter/free`), and the Gemini models with a free tier
+    listed in `lib/ai/free-models.ts`. The same rule is applied again when
+    models are offered and when a call is made. The panel suggests free models
+    to add: the Gemini list, and OpenRouter's current free models from its
+    public API.
   - Jev appears once the TypeSafe key is set.
   - Turning every model off acts as a pause.
 - **Games**

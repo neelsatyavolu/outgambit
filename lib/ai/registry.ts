@@ -4,6 +4,7 @@ import type { Provider } from "../game/types";
 import { getCredentials } from "../owner/credentials";
 import { codexAdapter } from "./codex";
 import { fakeAdapter } from "./fake";
+import { isFreeModel } from "./free-models";
 import { jevAdapter } from "./jev";
 import { chatAdapter } from "./openai-chat";
 import type { Adapter } from "./types";
@@ -17,6 +18,15 @@ export const fakeEnabled = (): boolean =>
   process.env.GAMBIT_FAKE_AI === "1" && process.env.NODE_ENV !== "production";
 
 const fakeScript = (): string[] => (process.env.GAMBIT_FAKE_SCRIPT ?? "").split(",").filter(Boolean);
+
+/**
+ * The last line of defence for "OpenRouter and Gemini never cost money":
+ * whatever a game row says, a model that is not free is never sent.
+ */
+function freeOnly(provider: Provider, adapter: Adapter): Adapter {
+  return async (request) =>
+    isFreeModel(provider, request.model) ? adapter(request) : { kind: "provider_error", message: "not a free model" };
+}
 
 /** The adapter for a provider, using the owner's stored credentials. Null if it is not connected. */
 export async function getAdapter(
@@ -43,16 +53,18 @@ export async function getAdapter(
     return null;
   }
   if (provider === "gemini") {
-    return chatAdapter({ url: GEMINI_URL, apiKey: secret.apiKey, effortField: "reasoning_effort", fetch: fetcher });
+    const gemini = chatAdapter({ url: GEMINI_URL, apiKey: secret.apiKey, effortField: "reasoning_effort", fetch: fetcher });
+    return freeOnly(provider, gemini);
   }
   if (provider === "openrouter") {
-    return chatAdapter({
+    const openRouter = chatAdapter({
       url: OPENROUTER_URL,
       apiKey: secret.apiKey,
       effortField: "reasoning",
       headers: { "X-Title": "Gambit" },
       fetch: fetcher,
     });
+    return freeOnly(provider, openRouter);
   }
   if (provider === "jev") return jevAdapter(secret.apiKey, { fetch: fetcher });
   return null;

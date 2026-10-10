@@ -52,6 +52,7 @@ const OWNER_ROUTES: Route[] = [
   { name: "toggle a model", method: "PATCH", path: "/api/owner/models", load: () => import("./owner/models/route") },
   { name: "remove a model", method: "DELETE", path: "/api/owner/models", load: () => import("./owner/models/route") },
   { name: "list games", method: "GET", path: "/api/owner/games", load: () => import("./owner/games/route") },
+  { name: "suggest free models", method: "GET", path: "/api/owner/models/suggestions", load: () => import("./owner/models/suggestions/route") },
 ];
 
 const id = { id: randomUUID() };
@@ -105,6 +106,17 @@ describe("state-changing routes", () => {
   it.each(WRITE_ROUTES)("$name is refused with no Origin header", async (route) => {
     signInAsOwner();
     expect((await call(route, { origin: null })).status).toBe(403);
+  });
+});
+
+describe("adding a model", () => {
+  it("refuses a paid model with the reason", async () => {
+    signInAsOwner();
+    const { POST } = await import("./owner/models/route");
+    const body = { provider: "openrouter", id: "openai/gpt-6-astra", label: "Astra", supportsEffort: true };
+    const response = await POST(request("POST", "/api/owner/models", { body }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain(":free");
   });
 });
 

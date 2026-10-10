@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   const body = await readBody(request, addSchema);
   if (!body) return fail("Give the model an ID and a label.", 400);
   const added = await addCustomModel(await getDb(), body);
-  return added ? ok({ added: true }, 201) : fail("Models can only be added for Gemini and OpenRouter.", 400);
+  return added.ok ? ok({ added: true }, 201) : fail(added.error, 400);
 }
 
 export async function PATCH(request: Request) {

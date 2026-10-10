@@ -1,8 +1,9 @@
 import "server-only";
+import { GEMINI_FREE_MODELS, freeModelRule, isFreeModel, openRouterFreeModels, type FreeModel } from "../ai/free-models";
 import { testJevKey } from "../ai/jev";
 import type { Db, Queryable } from "../db/client";
 import { listConnections } from "../db/connections";
-import { deleteModel, upsertModel } from "../db/models";
+import { deleteModel, listModelRows, upsertModel } from "../db/models";
 import type { Provider } from "../game/types";
 import { CUSTOM_PROVIDERS, listForOwner, type LoadCatalog } from "./catalog";
 import { getCredentials, saveSecret } from "./credentials";
@@ -92,28 +93,64 @@ export async function setModelEnabled(
   loadCatalog?: LoadCatalog,
 ): Promise<boolean> {
   const model = (await listForOwner(q, loadCatalog)).find((m) => m.provider === provider && m.id === id);
-  if (!model) return false;
+  if (!model || (enabled && !isFreeModel(provider, id))) return false;
   await upsertModel(q, { provider, modelId: id, label: model.label, supportsEffort: model.supportsEffort, enabled });
   return true;
 }
 
 export type CustomModel = { provider: Provider; id: string; label: string; supportsEffort: boolean };
 
-/** Adds a model the owner typed in. Only for providers without a shared catalog. */
-export async function addCustomModel(q: Queryable, model: CustomModel): Promise<boolean> {
-  if (!CUSTOM_PROVIDERS.includes(model.provider)) return false;
+export type AddResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Adds a model the owner typed in. Only for providers without a shared
+ * catalog, and only models that cost nothing.
+ */
+export async function addCustomModel(q: Queryable, model: CustomModel): Promise<AddResult> {
+  if (!CUSTOM_PROVIDERS.includes(model.provider)) {
+    return { ok: false, error: "Models can only be added for Gemini and OpenRouter." };
+  }
+  const id = model.id.trim();
+  if (!isFreeModel(model.provider, id)) return { ok: false, error: freeModelRule(model.provider) };
   await upsertModel(q, {
     provider: model.provider,
-    modelId: model.id.trim(),
+    modelId: id,
     label: model.label.trim(),
     supportsEffort: model.supportsEffort,
     enabled: true,
   });
-  return true;
+  return { ok: true };
 }
 
 export async function removeCustomModel(q: Queryable, provider: Provider, id: string): Promise<boolean> {
   if (!CUSTOM_PROVIDERS.includes(provider)) return false;
   await deleteModel(q, provider, id);
   return true;
+}
+
+const SUGGESTION_TTL_MS = 10 * 60_000;
+let cachedOpenRouter: { at: number; models: FreeModel[] } | null = null;
+
+async function cachedOpenRouterFreeModels(): Promise<FreeModel[]> {
+  if (cachedOpenRouter && Date.now() - cachedOpenRouter.at < SUGGESTION_TTL_MS) return cachedOpenRouter.models;
+  const models = await openRouterFreeModels();
+  // An empty answer usually means the list could not be loaded, so it is not kept.
+  if (models.length > 0) cachedOpenRouter = { at: Date.now(), models };
+  return models;
+}
+
+export type Suggestion = CustomModel;
+
+/** Free models the owner has not added yet: Gemini's free tier and OpenRouter's current free list. */
+export async function suggestedFreeModels(
+  q: Queryable,
+  loadOpenRouter: () => Promise<FreeModel[]> = cachedOpenRouterFreeModels,
+): Promise<Suggestion[]> {
+  const [existing, openRouter] = await Promise.all([listModelRows(q), loadOpenRouter()]);
+  const added = new Set(existing.map((m) => `${m.provider}/${m.modelId}`));
+  const all: Suggestion[] = [
+    ...GEMINI_FREE_MODELS.map((m) => ({ provider: "gemini" as const, ...m })),
+    ...openRouter.map((m) => ({ provider: "openrouter" as const, ...m })),
+  ];
+  return all.filter((m) => !added.has(`${m.provider}/${m.id}`));
 }

@@ -27,7 +27,9 @@ Open `/owner` and sign in with `OWNER_PASSWORD`.
    "Test" checks each one.
 2. **Models.** Tick the models players may choose. ChatGPT and Grok models come
    from `shared-ai-auth` and start switched off. Gemini and OpenRouter models are
-   added by ID. Jev appears once the TypeSafe key is saved.
+   added by ID or from the suggested list, and only free ones are accepted
+   (OpenRouter `:free` variants; the Gemini list in `lib/ai/free-models.ts`).
+   Gemini is free only while the key's Google project has no billing set up. Jev appears once the TypeSafe key is saved.
 3. **Games.** Live games are listed first. Open one to watch it; finished games
    can be stepped through.
 

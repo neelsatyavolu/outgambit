@@ -1,5 +1,6 @@
 import "server-only";
 import { bundledModels, loadModels, type ModelCatalog } from "@neelsatyavolu/shared-ai-auth";
+import { isFreeModel } from "../ai/free-models";
 import { fakeEnabled } from "../ai/registry";
 import { JEV_MODEL } from "../ai/jev";
 import { timeControlsFor } from "../config";
@@ -84,11 +85,11 @@ export async function listForOwner(q: Queryable, loadCatalog: LoadCatalog = cach
   return [...builtIn, ...custom];
 }
 
-/** The models a visitor may pick: enabled, with a connected provider. */
+/** The models a visitor may pick: enabled, with a connected provider, and free where that is required. */
 export async function listOffered(q: Queryable, loadCatalog: LoadCatalog = cachedCatalog): Promise<OfferedModel[]> {
   const models = await listForOwner(q, loadCatalog);
   return models
-    .filter((m) => m.enabled && m.connected)
+    .filter((m) => m.enabled && m.connected && isFreeModel(m.provider, m.id))
     .map((m) => ({
       provider: m.provider,
       id: m.id,

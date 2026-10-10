@@ -85,6 +85,15 @@ describe("listOffered", () => {
     expect(offered.find((m) => m.id === "jev-latest")?.timeControls).toContain("1+0");
   });
 
+  it("never offers a stored OpenRouter or Gemini model that is not free", async () => {
+    await saveSecret(db, "openrouter", key, NOW);
+    await saveSecret(db, "gemini", key, NOW);
+    await upsertModel(db, { provider: "openrouter", modelId: "openai/gpt-6-astra", label: "Paid", supportsEffort: true, enabled: true });
+    await upsertModel(db, { provider: "openrouter", modelId: "x/y:free", label: "Free", supportsEffort: false, enabled: true });
+    await upsertModel(db, { provider: "gemini", modelId: "gemini-3.1-pro-preview", label: "Pro", supportsEffort: true, enabled: true });
+    expect((await listOffered(db, loadCatalog)).map((m) => m.id)).toEqual(["x/y:free"]);
+  });
+
   it("offers nothing when every model is off", async () => {
     await saveSecret(db, "jev", key, NOW);
     await upsertModel(db, { provider: "jev", modelId: "jev-latest", label: "Jev", supportsEffort: false, enabled: false });

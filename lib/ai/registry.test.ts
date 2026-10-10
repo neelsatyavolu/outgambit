@@ -25,7 +25,7 @@ describe("getAdapter", () => {
     await saveSecret(db, "gemini", { kind: "key", apiKey: "g-key" }, NOW);
     const { fetcher, calls } = fakeFetch(reply);
     const adapter = await getAdapter(db, "gemini", NOW, fetcher);
-    await adapter!(requestFor([], { effort: "high" }));
+    await adapter!(requestFor([], { effort: "high", model: "gemini-3.8-flash" }));
     expect(calls[0].url).toBe("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions");
     expect(calls[0].headers.authorization).toBe("Bearer g-key");
     expect(calls[0].body.reasoning_effort).toBe("high");
@@ -34,9 +34,24 @@ describe("getAdapter", () => {
   it("calls OpenRouter with a reasoning object", async () => {
     await saveSecret(db, "openrouter", { kind: "key", apiKey: "or-key" }, NOW);
     const { fetcher, calls } = fakeFetch(reply);
-    await (await getAdapter(db, "openrouter", NOW, fetcher))!(requestFor([], { effort: "low" }));
+    await (await getAdapter(db, "openrouter", NOW, fetcher))!(requestFor([], { effort: "low", model: "x/y:free" }));
     expect(calls[0].url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(calls[0].body.reasoning).toEqual({ effort: "low" });
+  });
+
+  it("never sends a paid model to OpenRouter or Gemini, whatever the game says", async () => {
+    await saveSecret(db, "openrouter", { kind: "key", apiKey: "or-key" }, NOW);
+    await saveSecret(db, "gemini", { kind: "key", apiKey: "g-key" }, NOW);
+    const { fetcher, calls } = fakeFetch(reply);
+    const paid = [
+      await (await getAdapter(db, "openrouter", NOW, fetcher))!(requestFor([], { model: "openai/gpt-6-astra" })),
+      await (await getAdapter(db, "gemini", NOW, fetcher))!(requestFor([], { model: "gemini-3.1-pro-preview" })),
+    ];
+    expect(paid).toEqual([
+      { kind: "provider_error", message: "not a free model" },
+      { kind: "provider_error", message: "not a free model" },
+    ]);
+    expect(calls).toHaveLength(0);
   });
 
   it("calls Grok with the signed-in access token", async () => {

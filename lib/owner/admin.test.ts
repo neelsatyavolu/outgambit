@@ -3,7 +3,10 @@ import { fakeFetch, json } from "@/test/ai";
 import { resetDb, testDb } from "@/test/db";
 import type { Db } from "../db/client";
 import { getConnection } from "../db/connections";
-import { addCustomModel, connectionStatus, removeCustomModel, saveApiKey, setModelEnabled, testConnection } from "./admin";
+import {
+  addCustomModel, connectionStatus, removeCustomModel, saveApiKey, setModelEnabled, suggestedFreeModels, testConnection,
+} from "./admin";
+import { upsertModel } from "../db/models";
 import { listForOwner } from "./catalog";
 import { readSecret, saveSecret } from "./credentials";
 
@@ -107,9 +110,9 @@ describe("models", () => {
     expect(await setModelEnabled(db, "codex", "made-up", true, loadCatalog)).toBe(false);
   });
 
-  it("adds a hand-entered model, switched on, and keeps its details when toggled", async () => {
+  it("adds a hand-entered free model, switched on, and keeps its details when toggled", async () => {
     const model = { provider: "openrouter", id: " x/y:free ", label: " Y ", supportsEffort: true } as const;
-    expect(await addCustomModel(db, model)).toBe(true);
+    expect(await addCustomModel(db, model)).toEqual({ ok: true });
     await setModelEnabled(db, "openrouter", "x/y:free", false, loadCatalog);
     expect((await listForOwner(db, loadCatalog)).find((m) => m.id === "x/y:free")).toMatchObject({
       label: "Y", supportsEffort: true, enabled: false, custom: true,
@@ -117,13 +120,55 @@ describe("models", () => {
   });
 
   it("refuses a hand-entered model for a provider with a catalog", async () => {
-    expect(await addCustomModel(db, { provider: "codex", id: "gpt-z", label: "Z", supportsEffort: true })).toBe(false);
+    const result = await addCustomModel(db, { provider: "codex", id: "gpt-z", label: "Z", supportsEffort: true });
+    expect(result).toEqual({ ok: false, error: "Models can only be added for Gemini and OpenRouter." });
+  });
+
+  it("refuses an OpenRouter model that is not a free variant, and stores nothing", async () => {
+    const result = await addCustomModel(db, { provider: "openrouter", id: "openai/gpt-6-astra", label: "Astra", supportsEffort: true });
+    expect(result).toEqual({ ok: false, error: expect.stringContaining(":free") });
+    expect((await listForOwner(db, loadCatalog)).some((m) => m.id === "openai/gpt-6-astra")).toBe(false);
+  });
+
+  it("refuses a Gemini model that has no free tier", async () => {
+    const result = await addCustomModel(db, { provider: "gemini", id: "gemini-3.1-pro-preview", label: "Pro", supportsEffort: true });
+    expect(result).toEqual({ ok: false, error: expect.stringContaining("free tier") });
+  });
+
+  it("refuses to switch on a stored model that is not free", async () => {
+    await upsertModel(db, { provider: "openrouter", modelId: "openai/gpt-6-astra", label: "Paid", supportsEffort: true, enabled: false });
+    expect(await setModelEnabled(db, "openrouter", "openai/gpt-6-astra", true, loadCatalog)).toBe(false);
   });
 
   it("removes a hand-entered model but not a catalog one", async () => {
-    await addCustomModel(db, { provider: "gemini", id: "gem-1", label: "Gem", supportsEffort: false });
-    expect(await removeCustomModel(db, "gemini", "gem-1")).toBe(true);
-    expect((await listForOwner(db, loadCatalog)).some((m) => m.id === "gem-1")).toBe(false);
+    await addCustomModel(db, { provider: "gemini", id: "gemini-3.8-flash", label: "Flash", supportsEffort: true });
+    expect(await removeCustomModel(db, "gemini", "gemini-3.8-flash")).toBe(true);
+    expect((await listForOwner(db, loadCatalog)).some((m) => m.id === "gemini-3.8-flash")).toBe(false);
     expect(await removeCustomModel(db, "codex", "gpt-a")).toBe(false);
+  });
+});
+
+describe("suggestedFreeModels", () => {
+  const openRouter = async () => [
+    { id: "a/one:free", label: "A: One", supportsEffort: true },
+    { id: "b/two:free", label: "B: Two", supportsEffort: false },
+  ];
+
+  it("suggests the free Gemini models and OpenRouter's current free models", async () => {
+    const suggestions = await suggestedFreeModels(db, openRouter);
+    expect(suggestions.filter((m) => m.provider === "gemini").map((m) => m.id)).toContain("gemini-3.8-flash");
+    expect(suggestions.filter((m) => m.provider === "openrouter")).toEqual([
+      { provider: "openrouter", id: "a/one:free", label: "A: One", supportsEffort: true },
+      { provider: "openrouter", id: "b/two:free", label: "B: Two", supportsEffort: false },
+    ]);
+  });
+
+  it("leaves out models that have already been added", async () => {
+    await addCustomModel(db, { provider: "openrouter", id: "a/one:free", label: "A: One", supportsEffort: true });
+    await addCustomModel(db, { provider: "gemini", id: "gemini-3.8-flash", label: "Flash", supportsEffort: true });
+    const ids = (await suggestedFreeModels(db, openRouter)).map((m) => m.id);
+    expect(ids).not.toContain("a/one:free");
+    expect(ids).not.toContain("gemini-3.8-flash");
+    expect(ids).toContain("b/two:free");
   });
 });
