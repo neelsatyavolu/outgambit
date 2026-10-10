@@ -1,0 +1,1 @@
+Gambit: play chess against an AI model. A chessboard showing the Queen's Gambit after 1. d4 d5 2. c4.

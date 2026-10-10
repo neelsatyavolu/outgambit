@@ -8,8 +8,16 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 const newsreader = Newsreader({ subsets: ["latin"], variable: "--font-newsreader", display: "swap" });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://outgambit.n3el.dev"),
   title: "Gambit",
   description: "Play a full game of chess against an AI model.",
+  openGraph: {
+    title: "Gambit — play chess against an AI model",
+    description: "Play a full game of chess against an AI model.",
+    url: "/",
+    siteName: "Gambit",
+    type: "website",
+  },
 };
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1 };
