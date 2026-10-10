@@ -7,10 +7,11 @@ import { api } from "@/lib/client/api";
 import type { TimeControl } from "@/lib/config";
 import { PROVIDER_LABELS } from "@/lib/format";
 import type { Capacity } from "@/lib/game/limits";
-import { EFFORTS, type Color, type Effort, type Provider } from "@/lib/game/types";
+import { EFFORTS, type Color, type Effort } from "@/lib/game/types";
 import type { OfferedModel } from "@/lib/owner/catalog";
 import type { RatedModel } from "@/lib/rating/board";
 import { POOL_LABELS, poolOf, type Pool } from "@/lib/rating/elo";
+import { opponentGroups, ratingFor } from "@/lib/rating/opponents";
 import { Segmented } from "./Segmented";
 
 type Lobby = {
@@ -35,16 +36,19 @@ const BLOCKED_TEXT = {
   global: "All of today's games have been played.",
 } as const;
 
+/** What sets each group of opponents apart: the fast ones play everything, the rest only slow games. */
+const GROUP_NOTES: Record<Pool, string> = {
+  bullet: "plays every time control",
+  regular: "10+10 and slower",
+};
+
+const DEFAULT_EFFORT: Effort = "medium";
+
 const keyOf = (model: Pick<OfferedModel, "provider" | "id">): string => `${model.provider}/${model.id}`;
 
 function untilReset(resetAt: number, now: number): string {
   const minutes = Math.max(1, Math.ceil((resetAt - now) / 60_000));
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
-}
-
-function groupByProvider(models: OfferedModel[]): Array<[Provider, OfferedModel[]]> {
-  const providers = [...new Set(models.map((m) => m.provider))];
-  return providers.map((p) => [p, models.filter((m) => m.provider === p)]);
 }
 
 /** Splits an opponent's time controls into the quick ones and the slow ones. */
@@ -55,14 +59,6 @@ function timeGroups(offered: string[], all: TimeControl[]): Array<{ name: string
     { name: "Slow", ids: offered.filter((id) => !fast.has(id)) },
   ];
   return groups.filter((g) => g.ids.length > 0);
-}
-
-/** A model's rating line for the chosen effort, in the pool being played (or regular, if it does not play that pool). */
-function ratingFor(ratings: RatedModel[], model: OfferedModel, effort: Effort, pool: Pool): RatedModel | undefined {
-  const lines = ratings.filter(
-    (r) => r.provider === model.provider && r.id === model.id && r.effort === (model.supportsEffort ? effort : null),
-  );
-  return lines.find((r) => r.pool === pool) ?? lines.find((r) => r.pool === "regular");
 }
 
 function CapacityCells({ capacity, now }: { capacity: Capacity; now: number }) {
@@ -105,7 +101,7 @@ export function SetupForm() {
   const [lobby, setLobby] = useState<Lobby | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
-  const [effort, setEffort] = useState<Effort>("medium");
+  const [effort, setEffort] = useState<Effort>(DEFAULT_EFFORT);
   const [timeControl, setTimeControl] = useState("10+10");
   const [side, setSide] = useState<Side>("white");
   const [starting, setStarting] = useState(false);
@@ -117,7 +113,9 @@ export function SetupForm() {
       if (!alive) return;
       if (!response.success) return setError(response.error);
       setLobby(response.data);
-      setChosen((current) => current ?? (response.data.models[0] ? keyOf(response.data.models[0]) : null));
+      // Start on the opponent at the top of the list as it is drawn.
+      const first = opponentGroups(response.data.models, response.data.ratings, DEFAULT_EFFORT)[0]?.opponents[0];
+      setChosen((current) => current ?? (first ? keyOf(first.model) : null));
     });
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => {
@@ -220,10 +218,12 @@ export function SetupForm() {
           <section className="section">
             <span className="label">1 · Choose an opponent</span>
             <div className="rows" role="radiogroup" aria-label="Opponent">
-              {groupByProvider(lobby.models).map(([provider, models]) => (
-                <div key={provider}>
-                  <div className="group-title label">{PROVIDER_LABELS[provider]}</div>
-                  {models.map((m) => (
+              {opponentGroups(lobby.models, lobby.ratings, effort).map((group) => (
+                <div key={group.pool}>
+                  <div className="group-title label">
+                    {POOL_LABELS[group.pool]} · {GROUP_NOTES[group.pool]}
+                  </div>
+                  {group.opponents.map(({ model: m, line }) => (
                     <button
                       key={keyOf(m)}
                       type="button"
@@ -233,8 +233,8 @@ export function SetupForm() {
                       onClick={() => setChosen(keyOf(m))}
                     >
                       <span className="grow">{m.label}</span>
-                      <span className="meta">{m.timeControls.includes("1+0") ? "fast · bullet to classical" : "slow games only"}</span>
-                      <RatingTag line={ratingFor(lobby.ratings, m, effort, pool)} />
+                      <span className="meta">{PROVIDER_LABELS[m.provider]}</span>
+                      <RatingTag line={line} />
                     </button>
                   ))}
                 </div>
