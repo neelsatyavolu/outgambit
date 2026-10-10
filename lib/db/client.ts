@@ -26,13 +26,23 @@ export async function createPgliteDb(dataDir?: string): Promise<Db> {
 }
 
 /**
+ * `pg` already checks the server's certificate in full for `sslmode=require`
+ * and `prefer`, but warns on every cold start that a future version will
+ * not. Asking for `verify-full` by name keeps today's behaviour and the
+ * stronger guarantee.
+ */
+export function explicitSslMode(url: string): string {
+  return url.replace(/([?&]sslmode=)(?:require|prefer|verify-ca)(?=&|$)/, "$1verify-full");
+}
+
+/**
  * A real Postgres server (Neon in production). `schema` confines every query
  * to one schema, which lets test files share a server without colliding.
  */
 export async function createPostgresDb(url: string, schema?: string): Promise<Db> {
   const { Pool } = await import("pg");
   const pool = new Pool({
-    connectionString: url,
+    connectionString: explicitSslMode(url),
     max: 5,
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 30_000,

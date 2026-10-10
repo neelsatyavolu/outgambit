@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "@/test/db";
 import { makeGame, NOON } from "@/test/factory";
-import { createPgliteDb, createPostgresDb, type Db } from "./client";
+import { createPgliteDb, createPostgresDb, explicitSslMode, type Db } from "./client";
 import { deleteConnection, getConnection, listConnections, putConnection } from "./connections";
 import {
   activeGameFor, claimLease, commitMove, countForDay, expireOverdue, finishGame, getGame, insertGame, listGames,
@@ -25,6 +25,21 @@ const E4 = { san: "e4", uci: "e2e4", fenAfter: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP
 describe("schema", () => {
   it("can be migrated twice", async () => {
     await expect(migrate(db)).resolves.toBeUndefined();
+  });
+});
+
+describe("explicitSslMode", () => {
+  it("spells out full certificate checking where the driver already applies it", () => {
+    expect(explicitSslMode("postgres://u:p@host/db?sslmode=require")).toBe("postgres://u:p@host/db?sslmode=verify-full");
+    expect(explicitSslMode("postgres://u:p@host/db?a=1&sslmode=prefer&b=2")).toBe(
+      "postgres://u:p@host/db?a=1&sslmode=verify-full&b=2",
+    );
+  });
+
+  it("leaves other connection strings alone", () => {
+    for (const url of ["postgres://u@127.0.0.1:5432/db", "postgres://u@h/db?sslmode=disable", "postgres://u@h/db?sslmode=verify-full"]) {
+      expect(explicitSslMode(url)).toBe(url);
+    }
   });
 });
 

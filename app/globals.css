@@ -95,6 +95,19 @@ a:hover {
   font-weight: 500;
 }
 
+.masthead nav {
+  display: flex;
+  gap: 24px;
+}
+
+.masthead nav a {
+  color: var(--fg-2);
+}
+
+.masthead nav a:hover {
+  color: var(--fg);
+}
+
 .caret {
   color: var(--accent);
   animation: blink 1s steps(1) infinite;
@@ -602,6 +615,12 @@ textarea.field {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .masthead .tagline {
+    display: none;
   }
 }
 

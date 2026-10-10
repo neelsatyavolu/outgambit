@@ -23,7 +23,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="mark">
               Gambit<span className="caret" aria-hidden="true">▏</span>
             </Link>
-            <span className="muted">chess vs machines</span>
+            <nav>
+              <span className="muted tagline">chess vs machines</span>
+              <Link href="/owner">Owner</Link>
+            </nav>
           </header>
           <main>{children}</main>
         </div>

@@ -10,6 +10,8 @@ async function move(page: Page, from: string, to: string) {
 test("a visitor plays a game to the end and the owner watches it", async ({ page, browser }) => {
   await page.goto("/");
   await expect(page.getByText("Your games left today")).toBeVisible();
+  const icon = await page.locator('link[rel="icon"]').first().getAttribute("href");
+  expect((await page.request.get(icon!)).headers()["content-type"]).toContain("image/svg+xml");
   await expect(page.getByRole("radio", { name: /Scripted/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Start game" }).click();
@@ -42,8 +44,10 @@ test("a visitor plays a game to the end and the owner watches it", async ({ page
   await ownerContext.close();
 });
 
-test("the owner panel refuses a wrong password", async ({ page }) => {
-  await page.goto("/owner");
+test("the owner can reach the login from the site and a wrong password is refused", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Owner" }).click();
+  await page.waitForURL(/\/owner$/);
   await page.getByLabel("Owner password").fill("not-the-password");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText("Wrong password.")).toBeVisible();
