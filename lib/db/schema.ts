@@ -55,6 +55,12 @@ const STATEMENTS = [
     window_start timestamptz NOT NULL,
     count integer NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS users (
+    id uuid PRIMARY KEY,
+    email text NOT NULL UNIQUE,
+    password_hash text NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
   // Later additions go here as idempotent ALTERs, so existing databases catch up.
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_invalid integer NOT NULL DEFAULT 0`,
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_failures integer NOT NULL DEFAULT 0`,

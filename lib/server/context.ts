@@ -2,6 +2,9 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { after } from "next/server";
+import {
+  ACCOUNT_COOKIE, ACCOUNT_TTL_MS, accountOf, accountPlayerId, createAccountSession,
+} from "../account/session";
 import { getAdapter } from "../ai/registry";
 import { getDb } from "../db/client";
 import type { Deps } from "../game/deps";
@@ -34,9 +37,37 @@ export async function buildDeps(): Promise<Deps> {
   };
 }
 
-/** The visitor's anonymous id, from their cookie. `create` issues one if they have none. */
+/** The signed-in account's user id, or null for a guest. */
+export async function accountId(): Promise<string | null> {
+  const jar = await cookies();
+  return accountOf(jar.get(ACCOUNT_COOKIE)?.value, Date.now());
+}
+
+/** The anonymous id this browser has played under, whether or not it is signed in. */
+export async function guestId(): Promise<string | undefined> {
+  const value = (await cookies()).get(PLAYER_COOKIE)?.value;
+  return isPlayerId(value) ? value : undefined;
+}
+
+/** Signs this browser in to an account. */
+export async function startAccountSession(userId: string): Promise<void> {
+  (await cookies()).set(ACCOUNT_COOKIE, createAccountSession(userId, Date.now()), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: secureCookies(),
+    path: "/",
+    maxAge: ACCOUNT_TTL_MS / 1000,
+  });
+}
+
+/**
+ * The id this visitor plays under: their account when signed in, otherwise
+ * the anonymous id in their cookie. `create` issues one if they have neither.
+ */
 export async function playerId(options: { create: boolean }): Promise<string | undefined> {
   const jar = await cookies();
+  const account = accountOf(jar.get(ACCOUNT_COOKIE)?.value, Date.now());
+  if (account) return accountPlayerId(account);
   const existing = jar.get(PLAYER_COOKIE)?.value;
   if (isPlayerId(existing)) return existing;
   if (!options.create) return undefined;

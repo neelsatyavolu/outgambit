@@ -7,12 +7,13 @@ import { makeGame, NOON } from "@/test/factory";
 import { createPgliteDb, createPostgresDb, explicitSslMode, type Db } from "./client";
 import { deleteConnection, getConnection, listConnections, putConnection } from "./connections";
 import {
-  activeGameFor, claimLease, commitMove, countForDay, expireOverdue, finishGame, getGame, insertGame, listGames,
-  listMoves, recordAttempt, renewLease,
+  activeGameFor, claimGames, claimLease, commitMove, countForDay, expireOverdue, finishGame, getGame, insertGame,
+  listGames, listGamesFor, listMoves, recordAttempt, renewLease, tallyFor,
 } from "./games";
 import { deleteModel, listModelRows, upsertModel } from "./models";
 import { hitRateLimit } from "./rate-limit";
 import { migrate } from "./schema";
+import { findUserByEmail, getUser, insertUser } from "./users";
 
 let db: Db;
 beforeAll(async () => {
@@ -261,5 +262,74 @@ describe("rate limit", () => {
   it("counts keys separately", async () => {
     await hitRateLimit(db, "a", 1, 60_000, NOON);
     expect(await hitRateLimit(db, "b", 1, 60_000, NOON)).toBe(true);
+  });
+});
+
+describe("users", () => {
+  const ada = { id: "3f0c2f6e-5b1a-4c8e-9d2a-7e6f5a4b3c2d", email: "ada@example.com", passwordHash: "hash-1", createdAt: NOON };
+
+  it("round-trips a user by email and by id", async () => {
+    expect(await insertUser(db, ada)).toBe(true);
+    expect(await findUserByEmail(db, "ada@example.com")).toEqual(ada);
+    expect(await getUser(db, ada.id)).toEqual(ada);
+  });
+
+  it("returns null for an unknown user", async () => {
+    expect(await findUserByEmail(db, "nobody@example.com")).toBeNull();
+    expect(await getUser(db, ada.id)).toBeNull();
+  });
+
+  it("refuses a second user with the same email and keeps the first", async () => {
+    await insertUser(db, ada);
+    const second = { ...ada, id: "8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", passwordHash: "hash-2" };
+    expect(await insertUser(db, second)).toBe(false);
+    expect(await findUserByEmail(db, "ada@example.com")).toEqual(ada);
+  });
+});
+
+describe("a player's games", () => {
+  const finished = (overrides: Parameters<typeof makeGame>[0]) => makeGame({ status: "finished", reason: "checkmate", ...overrides });
+
+  it("moves one player's games to another and leaves the rest alone", async () => {
+    const mine = [makeGame({ playerId: "guest" }), finished({ playerId: "guest", result: "white" })];
+    const theirs = makeGame({ playerId: "someone-else" });
+    for (const game of [...mine, theirs]) await insertGame(db, game);
+    expect(await claimGames(db, "guest", "account")).toBe(2);
+    expect((await getGame(db, mine[0].id))!.playerId).toBe("account");
+    expect((await getGame(db, mine[1].id))!.playerId).toBe("account");
+    expect((await getGame(db, theirs.id))!.playerId).toBe("someone-else");
+  });
+
+  it("lists only that player's games, live first and then the most recent", async () => {
+    const old = finished({ result: "white", createdAt: NOON });
+    const recent = finished({ result: "black", createdAt: NOON + 2_000 });
+    const live = makeGame({ createdAt: NOON + 1_000 });
+    for (const game of [old, recent, live, makeGame({ playerId: "someone-else" })]) await insertGame(db, game);
+    expect((await listGamesFor(db, "player-1", 10)).map((g) => g.id)).toEqual([live.id, recent.id, old.id]);
+    expect(await listGamesFor(db, "player-1", 2)).toHaveLength(2);
+  });
+
+  it("tallies finished games by model, time control and colour", async () => {
+    const games = [
+      finished({ result: "white" }),
+      finished({ result: "black" }),
+      finished({ result: "draw", reason: "stalemate" }),
+      finished({ playerColor: "black", result: "black", timeControl: "5+0", modelLabel: "Other" }),
+    ];
+    for (const game of games) await insertGame(db, game);
+    const tallies = await tallyFor(db, "player-1");
+    expect(tallies).toHaveLength(2);
+    expect(tallies).toContainEqual({ modelLabel: "Fake", timeControl: "10+10", playerColor: "white", played: 3, won: 1, drawn: 1 });
+    expect(tallies).toContainEqual({ modelLabel: "Other", timeControl: "5+0", playerColor: "black", played: 1, won: 1, drawn: 0 });
+  });
+
+  it("leaves live and aborted games, and other players' games, out of the tally", async () => {
+    const ignored = [
+      makeGame(),
+      makeGame({ status: "aborted", reason: "provider_error" }),
+      finished({ playerId: "someone-else", result: "white" }),
+    ];
+    for (const game of ignored) await insertGame(db, game);
+    expect(await tallyFor(db, "player-1")).toEqual([]);
   });
 });

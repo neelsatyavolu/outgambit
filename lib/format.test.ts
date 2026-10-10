@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { capturedPieces, formatClock, headline, reasonText } from "./format";
+import { capturedPieces, formatClock, headline, outcomeText, reasonText } from "./format";
+
+describe("outcomeText", () => {
+  const game = { status: "finished", result: "white", reason: "checkmate", playerColor: "white" } as const;
+
+  it("says how the player's finished game went, and why", () => {
+    expect(outcomeText(game)).toBe("won · checkmate");
+    expect(outcomeText({ ...game, playerColor: "black", reason: "timeout" })).toBe("lost · time");
+    expect(outcomeText({ ...game, result: "draw", reason: "stalemate" })).toBe("draw · stalemate");
+  });
+
+  it("marks games with no result", () => {
+    expect(outcomeText({ ...game, status: "active", result: null, reason: null })).toBe("live");
+    expect(outcomeText({ ...game, status: "aborted", result: null, reason: "provider_error" })).toBe("aborted");
+  });
+});
 
 describe("formatClock", () => {
   it("shows minutes and seconds", () => {

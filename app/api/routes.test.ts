@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ACCOUNT_COOKIE } from "@/lib/account/session";
 import { OWNER_COOKIE, createSession } from "@/lib/owner/session";
 import { PLAYER_COOKIE } from "@/lib/server/context";
 
@@ -63,6 +64,9 @@ const WRITE_ROUTES: Route[] = [
   { name: "start a game", method: "POST", path: "/api/games", load: () => import("./games/route") },
   { name: "move", method: "POST", path: `/api/games/${id.id}/moves`, load: () => import("./games/[id]/moves/route"), params: id },
   { name: "resign", method: "POST", path: `/api/games/${id.id}/resign`, load: () => import("./games/[id]/resign/route"), params: id },
+  { name: "register", method: "POST", path: "/api/account/register", load: () => import("./account/register/route") },
+  { name: "account login", method: "POST", path: "/api/account/login", load: () => import("./account/login/route") },
+  { name: "account logout", method: "POST", path: "/api/account/logout", load: () => import("./account/logout/route") },
 ];
 
 async function call(route: Route, options: Parameters<typeof request>[2] = {}): Promise<Response> {
@@ -140,21 +144,23 @@ describe("owner login", () => {
   });
 });
 
-describe("player routes", () => {
-  async function startGame(ip: string): Promise<string> {
-    vi.stubEnv("GAMBIT_FAKE_AI", "1");
-    vi.stubEnv("GAMBIT_FAKE_SCRIPT", "e5");
-    const { POST } = await import("./games/route");
-    const body = { provider: "fake", model: "fake-1", effort: null, timeControl: "5+0", color: "white" };
-    const response = await POST(request("POST", "/api/games", { body, ip }));
-    expect(response.status).toBe(201);
-    return (await response.json()).data.id as string;
-  }
-  const view = async (gameId: string) =>
-    (await import("./games/[id]/route")).GET(request("GET", `/api/games/${gameId}`, { origin: null }), params({ id: gameId }));
-  const move = async (gameId: string, body: unknown) =>
-    (await import("./games/[id]/moves/route")).POST(request("POST", `/api/games/${gameId}/moves`, { body }), params({ id: gameId }));
+async function startGame(ip: string): Promise<string> {
+  vi.stubEnv("GAMBIT_FAKE_AI", "1");
+  vi.stubEnv("GAMBIT_FAKE_SCRIPT", "e5");
+  const { POST } = await import("./games/route");
+  const body = { provider: "fake", model: "fake-1", effort: null, timeControl: "5+0", color: "white" };
+  const response = await POST(request("POST", "/api/games", { body, ip }));
+  expect(response.status).toBe(201);
+  return (await response.json()).data.id as string;
+}
+const view = async (gameId: string) =>
+  (await import("./games/[id]/route")).GET(request("GET", `/api/games/${gameId}`, { origin: null }), params({ id: gameId }));
+const move = async (gameId: string, body: unknown) =>
+  (await import("./games/[id]/moves/route")).POST(request("POST", `/api/games/${gameId}/moves`, { body }), params({ id: gameId }));
+const resign = async (gameId: string) =>
+  (await import("./games/[id]/resign/route")).POST(request("POST", `/api/games/${gameId}/resign`), params({ id: gameId }));
 
+describe("player routes", () => {
   it("gives a new visitor an id cookie scripts cannot read", async () => {
     const { GET } = await import("./lobby/route");
     const response = await GET(request("GET", "/api/lobby", { origin: null, ip: "198.51.100.30" }));
@@ -188,8 +194,7 @@ describe("player routes", () => {
     jar.set(PLAYER_COOKIE, { value: randomUUID() });
     expect((await view(gameId)).status).toBe(404);
     expect((await move(gameId, { move: "e2e4", ply: 0 })).status).toBe(404);
-    const { POST: resign } = await import("./games/[id]/resign/route");
-    expect((await resign(request("POST", `/api/games/${gameId}/resign`), params({ id: gameId }))).status).toBe(409);
+    expect((await resign(gameId)).status).toBe(409);
 
     jar.delete(PLAYER_COOKIE);
     expect((await view(gameId)).status).toBe(404);
@@ -204,5 +209,162 @@ describe("player routes", () => {
     const body = { provider: "fake", model: "fake-1", effort: null, timeControl: "5+0", color: "white" };
     const response = await POST(request("POST", "/api/games", { body, ip: "198.51.100.34" }));
     expect(response.status).toBe(400);
+  });
+});
+
+describe("accounts", () => {
+  const PASSWORD = "correct horse battery";
+  const someone = () => ({ email: `${randomUUID()}@example.com`, password: PASSWORD });
+  const register = async (body: unknown, ip = "198.51.100.40") =>
+    (await import("./account/register/route")).POST(request("POST", "/api/account/register", { body, ip }));
+  const login = async (body: unknown, ip = "198.51.100.41") =>
+    (await import("./account/login/route")).POST(request("POST", "/api/account/login", { body, ip }));
+  const logout = async () => (await import("./account/logout/route")).POST(request("POST", "/api/account/logout"));
+  const account = async () => (await import("./account/route")).GET();
+
+  it("registers a visitor and signs them in with a cookie scripts cannot read", async () => {
+    const ada = someone();
+    expect((await register(ada)).status).toBe(201);
+    expect(jar.get(ACCOUNT_COOKIE)?.options).toMatchObject({ httpOnly: true, sameSite: "lax", path: "/" });
+    const response = await account();
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(JSON.parse(text).data.email).toBe(ada.email);
+    expect(text).not.toMatch(/passwordHash|scrypt|playerId|ipHash/);
+  });
+
+  it("refuses an email that is already registered", async () => {
+    const ada = someone();
+    await register(ada);
+    jar.clear();
+    const response = await register({ ...ada, email: ada.email.toUpperCase() }, "198.51.100.42");
+    expect(response.status).toBe(409);
+    expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
+  });
+
+  it.each([
+    { name: "a malformed email", body: { email: "not-an-email", password: PASSWORD } },
+    { name: "a password under eight characters", body: { email: "short@example.com", password: "1234567" } },
+    { name: "a missing password", body: { email: "none@example.com" } },
+  ])("refuses to register with $name", async ({ body }) => {
+    expect((await register(body, "198.51.100.43")).status).toBe(400);
+    expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
+  });
+
+  it("signs in with the right password only", async () => {
+    const ada = someone();
+    await register(ada, "198.51.100.44");
+    jar.clear();
+    expect((await login({ ...ada, password: "correct horse batterz" }, "198.51.100.44")).status).toBe(401);
+    expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
+    expect((await login(ada, "198.51.100.44")).status).toBe(200);
+    expect((await (await account()).json()).data.email).toBe(ada.email);
+  });
+
+  it("does not reveal whether an email is registered when sign-in fails", async () => {
+    const ada = someone();
+    await register(ada, "198.51.100.45");
+    jar.clear();
+    const wrongPassword = await (await login({ ...ada, password: "wrong password" }, "198.51.100.45")).json();
+    const unknownEmail = await (await login(someone(), "198.51.100.45")).json();
+    expect(wrongPassword).toEqual({ success: false, error: "Wrong email or password." });
+    expect(unknownEmail).toEqual(wrongPassword);
+  });
+
+  it("locks out an address after ten sign-in attempts, even with the right password", async () => {
+    const ada = someone();
+    await register(ada, "198.51.100.46");
+    jar.clear();
+    for (let i = 0; i < 10; i++) await login({ email: `${randomUUID()}@example.com`, password: "wrong" }, "198.51.100.47");
+    expect((await login(ada, "198.51.100.47")).status).toBe(429);
+  });
+
+  it("locks out sign-in to one email attacked from many addresses", async () => {
+    const victim = someone();
+    for (let i = 0; i < 30; i++) expect((await login(victim, `203.0.113.${i}`)).status).toBe(401);
+    expect((await login(victim, "203.0.113.200")).status).toBe(429);
+  });
+
+  it("limits how many accounts one address can create", async () => {
+    for (let i = 0; i < 5; i++) expect((await register(someone(), "198.51.100.48")).status).toBe(201);
+    expect((await register(someone(), "198.51.100.48")).status).toBe(429);
+  });
+
+  it("tells a visitor who is not signed in to sign in", async () => {
+    const response = await account();
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ success: false, error: "Sign in first." });
+  });
+
+  it("forgets a session whose account no longer exists", async () => {
+    await register(someone(), "198.51.100.49");
+    const { getDb } = await import("@/lib/db/client");
+    await (await getDb()).query("DELETE FROM users WHERE id = $1", [jar.get(ACCOUNT_COOKIE)!.value.split(".")[1]]);
+    expect((await account()).status).toBe(401);
+    expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
+  });
+
+  it("keeps the games a guest played when they register, and counts them", async () => {
+    const gameId = await startGame("198.51.100.50");
+    expect((await resign(gameId)).status).toBe(200);
+    await register(someone(), "198.51.100.50");
+    const { data } = await (await account()).json();
+    expect(data.games.map((g: { id: string }) => g.id)).toEqual([gameId]);
+    expect(data.games[0]).toMatchObject({ status: "finished", result: "black", reason: "resignation", playerColor: "white" });
+    expect(data.stats.overall).toEqual({ played: 1, won: 0, lost: 1, drawn: 0 });
+    expect((await view(gameId)).status).toBe(200);
+  });
+
+  it("plays new games under the account, so they follow it to another browser", async () => {
+    const ada = someone();
+    await register(ada, "198.51.100.51");
+    const gameId = await startGame("198.51.100.51");
+    expect((await move(gameId, { move: "e2e4", ply: 0 })).status).toBe(200);
+
+    jar.clear();
+    expect((await view(gameId)).status).toBe(404);
+    await login(ada, "198.51.100.51");
+    expect((await view(gameId)).status).toBe(200);
+    expect((await (await account()).json()).data.games[0]).toMatchObject({ id: gameId, status: "active" });
+  });
+
+  const signedInUserId = () => jar.get(ACCOUNT_COOKIE)!.value.split(".")[1];
+
+  it("does not let an account's id stand in for its session", async () => {
+    await register(someone(), "198.51.100.53");
+    const gameId = await startGame("198.51.100.53");
+    const userId = signedInUserId();
+    jar.clear();
+    for (const forged of [userId, `account:${userId}`]) {
+      jar.set(PLAYER_COOKIE, { value: forged });
+      expect((await view(gameId)).status).toBe(404);
+      expect((await move(gameId, { move: "e2e4", ply: 0 })).status).toBe(404);
+      expect((await resign(gameId)).status).toBe(409);
+    }
+  });
+
+  it("does not hand an account's games to a visitor who registers with its id as their guest id", async () => {
+    const victim = someone();
+    await register(victim, "198.51.100.54");
+    const gameId = await startGame("198.51.100.54");
+    const userId = signedInUserId();
+
+    jar.clear();
+    jar.set(PLAYER_COOKIE, { value: userId });
+    expect((await register(someone(), "198.51.100.55")).status).toBe(201);
+    expect((await (await account()).json()).data.games).toEqual([]);
+
+    jar.clear();
+    await login(victim, "198.51.100.54");
+    expect((await (await account()).json()).data.games.map((g: { id: string }) => g.id)).toEqual([gameId]);
+  });
+
+  it("closes the account's games to the browser on sign-out", async () => {
+    await register(someone(), "198.51.100.52");
+    const gameId = await startGame("198.51.100.52");
+    expect((await logout()).status).toBe(200);
+    expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
+    expect((await view(gameId)).status).toBe(404);
+    expect((await account()).status).toBe(401);
   });
 });
