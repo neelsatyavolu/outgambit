@@ -45,9 +45,17 @@ Sessions are signed with `SECRETS_KEY`, so changing it signs every player out.
 
 ## Limits and time controls
 
-All in `lib/config.ts`: 2 games per player per day, 4 per network, 10 overall,
+All in `lib/config.ts`: 5 games per player per day, 10 per network, 12 overall,
 resetting at midnight Pacific. LLMs get 10+10, 20+20 and 45+30. Jev also gets
 1+0, 2+1, 3+0 and 5+0.
+
+## Accounts and ratings
+
+Playing needs an account. Sign-up asks for a level or chess.com ratings, which
+set the player's starting Elo. Every finished game then moves the player's
+rating and the model's, separately for bullet (1+0 to 5+0) and regular games.
+Models start at the estimates in `lib/rating/seeds.ts`; `/ratings` shows the
+table.
 
 ## Checks
 

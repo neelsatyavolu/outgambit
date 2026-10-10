@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { MIN_PASSWORD_LENGTH } from "@/lib/account/input";
 import { api } from "@/lib/client/api";
+import type { Skill } from "@/lib/rating/elo";
 import { Segmented } from "../Segmented";
+import { SkillPicker } from "./SkillPicker";
 
 type Mode = "login" | "register";
 
@@ -18,13 +20,17 @@ export function AccountForm() {
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [skill, setSkill] = useState<Skill | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const registering = mode === "register";
+  const complete = email.length > 0 && password.length > 0 && (!registering || skill !== null);
 
   async function submit() {
     setBusy(true);
     setError(null);
-    const response = await api(`/api/account/${mode}`, "POST", { email, password });
+    const body = registering ? { email, password, skill } : { email, password };
+    const response = await api(`/api/account/${mode}`, "POST", body);
     // On success the form stays busy until the refresh replaces it, so it cannot be sent twice.
     if (response.success) return router.refresh();
     setBusy(false);
@@ -34,8 +40,8 @@ export function AccountForm() {
   return (
     <>
       <p className="lede">
-        An account keeps your games and stats together on every device. Games already played in this browser come
-        with you.
+        You need an account to play. Games are rated, so your account keeps your rating, your games and your stats
+        together on every device.
       </p>
       <form
         className="login stack"
@@ -82,8 +88,13 @@ export function AccountForm() {
             At least {MIN_PASSWORD_LENGTH} characters. There is no password reset, so keep it somewhere safe.
           </span>
         )}
+        {registering && (
+          <div style={{ marginTop: 16 }}>
+            <SkillPicker onChange={setSkill} />
+          </div>
+        )}
         <div className="actions" style={{ marginTop: 8 }}>
-          <button className="btn" type="submit" disabled={busy || email.length === 0 || password.length === 0}>
+          <button className="btn" type="submit" disabled={busy || !complete}>
             {mode === "register" ? "Create account" : "Sign in"}
           </button>
           {error && <span className="error">{error}</span>}

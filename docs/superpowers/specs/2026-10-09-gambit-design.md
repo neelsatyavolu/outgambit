@@ -81,9 +81,9 @@ All three numbers live in one config file.
 
 | Limit | Value | Keyed on |
 |---|---|---|
-| Per player per day | 2 | Cookie ID |
-| Per network per day (backstop) | 4 | Hashed IP |
-| Everyone per day | 10 | Global |
+| Per player per day | 5 | Account |
+| Per network per day (backstop) | 10 | Hashed IP |
+| Everyone per day | 12 | Global |
 
 - A new game must pass all three checks.
 - A game uses a slot when it is created. Aborted games do not count.
@@ -120,6 +120,29 @@ player can see their record and past games from any browser.
   screen, where a finished game can be stepped through move by move.
 - **Session.** A signed cookie lasting 30 days. Nothing about it is stored, so
   one session cannot be ended early from the server.
+
+### 4.6 Accounts and ratings
+
+- **Account required.** Starting a game needs a signed-in account. Creating one
+  asks for an email, a password, and how strong the player is: one of seven
+  levels (New to chess 400, Beginner 700, Beginner to intermediate 1000,
+  Intermediate 1300, Intermediate to advanced 1600, Advanced 1900, Expert 2200),
+  or their chess.com bullet and rapid ratings. That answer sets the player's
+  starting ratings and can be corrected until their first rated game.
+- **Two pools.** The quick time controls (1+0 to 5+0) are rated as bullet; the
+  rest as regular. A level's bullet rating starts 100 below its regular one.
+- **Models are rated too**, per model and effort, per pool. Each starts at an
+  estimate (`lib/rating/seeds.ts`), shown with a ~ until it has a rated game.
+- **Elo.** Expected score from the usual 400-point formula. A player's first ten
+  games in a pool move them by up to 40 a game, later ones by 24. A model moves
+  by 16, or 8 when its opponent has played fewer than five rated games.
+- **Settlement.** Finished games are rated afterwards in one place
+  (`lib/rating/settle.ts`), exactly once, whichever way they ended. Aborted
+  games, guests' old games, and games played before the player had a starting
+  rating are not rated.
+- **Where it shows.** Setup lists each opponent's rating and the player's own;
+  the end-of-game banner shows both changes; the account page shows the
+  player's two ratings; `/ratings` is the public table of models.
 
 ## 5. AI move generation
 

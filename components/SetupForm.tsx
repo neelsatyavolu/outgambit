@@ -9,9 +9,18 @@ import { PROVIDER_LABELS } from "@/lib/format";
 import type { Capacity } from "@/lib/game/limits";
 import { EFFORTS, type Color, type Effort, type Provider } from "@/lib/game/types";
 import type { OfferedModel } from "@/lib/owner/catalog";
+import type { RatedModel } from "@/lib/rating/board";
+import { POOL_LABELS, poolOf, type Pool } from "@/lib/rating/elo";
 import { Segmented } from "./Segmented";
 
-type Lobby = { capacity: Capacity; models: OfferedModel[]; timeControls: TimeControl[]; activeGameId: string | null };
+type Lobby = {
+  capacity: Capacity;
+  models: OfferedModel[];
+  ratings: RatedModel[];
+  timeControls: TimeControl[];
+  activeGameId: string | null;
+  account: { email: string; ratings: Record<Pool, number | null>; needsSkill: boolean } | null;
+};
 type Side = Color | "random";
 
 const SIDES = [
@@ -48,6 +57,14 @@ function timeGroups(offered: string[], all: TimeControl[]): Array<{ name: string
   return groups.filter((g) => g.ids.length > 0);
 }
 
+/** A model's rating line for the chosen effort, in the pool being played (or regular, if it does not play that pool). */
+function ratingFor(ratings: RatedModel[], model: OfferedModel, effort: Effort, pool: Pool): RatedModel | undefined {
+  const lines = ratings.filter(
+    (r) => r.provider === model.provider && r.id === model.id && r.effort === (model.supportsEffort ? effort : null),
+  );
+  return lines.find((r) => r.pool === pool) ?? lines.find((r) => r.pool === "regular");
+}
+
 function CapacityCells({ capacity, now }: { capacity: Capacity; now: number }) {
   const left = (c: { used: number; limit: number }) => c.limit - c.used;
   return (
@@ -69,6 +86,17 @@ function CapacityCells({ capacity, now }: { capacity: Capacity; now: number }) {
         <span className="figure">{untilReset(capacity.resetAt, now)}</span>
       </div>
     </div>
+  );
+}
+
+/** A model's rating beside its name. An unplayed model shows its starting estimate. */
+function RatingTag({ line }: { line: RatedModel | undefined }) {
+  if (!line) return null;
+  return (
+    <span className="meta num" title={line.games === 0 ? "Starting estimate; no rated games yet" : `${line.games} rated games`}>
+      {line.games === 0 ? "~" : ""}
+      {line.rating}
+    </span>
   );
 }
 
@@ -121,9 +149,37 @@ export function SetupForm() {
   if (!lobby) return <p className={error ? "error" : "muted"}>{error ?? "Loading…"}</p>;
 
   const blocked = lobby.capacity.blocked;
+  const pool = poolOf(control);
+  const mine = lobby.account?.ratings[pool] ?? null;
+  const theirs = model ? ratingFor(lobby.ratings, model, effort, pool) : undefined;
+  const canPlay = lobby.account !== null && !lobby.account.needsSkill;
   return (
     <>
       <CapacityCells capacity={lobby.capacity} now={now} />
+
+      {!lobby.account && (
+        <div className="notice">
+          <h2>Create an account to play</h2>
+          <p>Games are rated, for you and for the models. An account takes an email, a password and your level.</p>
+          <div className="actions">
+            <Link className="btn accent" href="/account">
+              Create an account or sign in
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {lobby.account?.needsSkill && (
+        <div className="notice">
+          <h2>One thing before you play</h2>
+          <p>Tell us how strong you are, so your rating has a starting point.</p>
+          <div className="actions">
+            <Link className="btn accent" href="/account">
+              Set my level
+            </Link>
+          </div>
+        </div>
+      )}
 
       {lobby.activeGameId && (
         <div className="notice">
@@ -178,6 +234,7 @@ export function SetupForm() {
                     >
                       <span className="grow">{m.label}</span>
                       <span className="meta">{m.timeControls.includes("1+0") ? "fast · bullet to classical" : "slow games only"}</span>
+                      <RatingTag line={ratingFor(lobby.ratings, m, effort, pool)} />
                     </button>
                   ))}
                 </div>
@@ -221,9 +278,15 @@ export function SetupForm() {
 
             <div className="summary">
               {model ? `${model.label} · ${control} · you play ${side}` : "Choose an opponent"}
+              {model && theirs && (
+                <div className="num" style={{ marginTop: 4 }}>
+                  {POOL_LABELS[pool]} rating: you {mine ?? "—"} · {model.label} {theirs.rating}
+                  {theirs.games === 0 ? " (estimate)" : ""}
+                </div>
+              )}
             </div>
-            <button className="btn accent" type="submit" disabled={starting || Boolean(blocked) || !model}>
-              {starting ? "Starting…" : "Start game"}
+            <button className="btn accent" type="submit" disabled={starting || Boolean(blocked) || !model || !canPlay}>
+              {starting ? "Starting…" : canPlay ? "Start game" : "Sign in to play"}
             </button>
             {error && <span className="error">{error}</span>}
           </aside>

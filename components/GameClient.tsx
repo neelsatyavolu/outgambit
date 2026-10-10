@@ -18,6 +18,8 @@ const TICK_MS = 100;
 type Synced = { view: GameView; at: number };
 type Optimistic = { fen: string; from: string; to: string };
 
+const signedChange = (n: number): string => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "±0");
+
 const lastMoveOf = (uci: string | undefined) => (uci ? { from: uci.slice(0, 2), to: uci.slice(2, 4) } : null);
 
 /** The time on a side's clock right now, counting down locally between polls. */
@@ -142,6 +144,13 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
         <div className="notice" role="status" data-testid="result">
           <h2>{end.title}</h2>
           <p>{end.detail}</p>
+          {view.rating && (
+            <p className="num" data-testid="rating-change" style={{ marginTop: 8 }}>
+              {spectator ? "Player" : "Your"} {view.pool} rating: {view.rating.playerBefore} → {view.rating.playerAfter} (
+              {signedChange(view.rating.playerAfter - view.rating.playerBefore)}) · {view.modelLabel}:{" "}
+              {view.rating.aiBefore} → {view.rating.aiAfter}
+            </p>
+          )}
           <div className="actions">
             <Link className="btn" href={spectator ? "/owner" : "/"}>
               {spectator ? "Back to games" : "New game"}

@@ -122,6 +122,18 @@ describe("settleRatings", () => {
     expect(await listModelRatings(db)).toEqual([]);
   });
 
+  it("does not rate a game played before the player had a starting rating", async () => {
+    const id = randomUUID();
+    await insertUser(db, { id, email: `${id}@example.com`, passwordHash: "x", createdAt: NOON });
+    const game = finished(id);
+    await insertGame(db, game);
+    expect(await settleRatings(db)).toBe(0);
+    expect(await getGame(db, game.id)).toMatchObject({ rated: true, rating: null });
+    // Their rating is still unset, so they can still choose where it starts.
+    expect((await getUser(db, id))!.ratings).toEqual({ bullet: null, regular: null });
+    expect(await setSkill(db, id, { level: "beginner", ratings: { regular: 700, bullet: 600 } })).toBe(true);
+  });
+
   it("settles games in the order they were played", async () => {
     const id = await player();
     const first = finished(id, { createdAt: NOON });

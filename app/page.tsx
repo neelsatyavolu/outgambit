@@ -5,7 +5,7 @@ export default function HomePage() {
     <>
       <h1 className="display">Play a machine</h1>
       <p className="lede">
-        Pick a model, set the clock and play a full game of chess against it. Everyone gets two games a day.
+        Pick a model, set the clock and play a full, rated game of chess against it. Up to five games a day.
       </p>
       <SetupForm />
     </>

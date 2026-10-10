@@ -470,6 +470,59 @@ textarea.field {
   margin-top: 8px;
 }
 
+.pair-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.ratings-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+}
+
+.ratings-table th,
+.ratings-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.ratings-table th {
+  background: var(--surface);
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-3);
+}
+
+.ratings-table .meta {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ratings-table td.num,
+.ratings-table th.num {
+  text-align: right;
+}
+
+.ratings-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.two-up {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
 .summary {
   padding-top: 16px;
   border-top: 1px solid var(--border);
@@ -745,6 +798,11 @@ textarea.field {
 
   .setup-side {
     position: static;
+  }
+
+  .two-up {
+    grid-template-columns: 1fr;
+    gap: 0;
   }
 
   .game {

@@ -6,7 +6,9 @@ import { useEffect, useState } from "react";
 import { winRate, type Line, type Stats, type Tally } from "@/lib/account/stats";
 import { api } from "@/lib/client/api";
 import { outcomeText } from "@/lib/format";
-import type { Color, Effort, Reason, Result, Status } from "@/lib/game/types";
+import type { Color, Effort, RatingChange, Reason, Result, Status } from "@/lib/game/types";
+import { POOLS, POOL_LABELS, type Pool, type Skill } from "@/lib/rating/elo";
+import { SkillPicker } from "./SkillPicker";
 
 type Summary = {
   id: string;
@@ -18,9 +20,47 @@ type Summary = {
   status: Status;
   result: Result | null;
   reason: Reason | null;
+  rating: RatingChange | null;
 };
 
-type AccountData = { email: string; stats: Stats; games: Summary[] };
+type AccountData = {
+  email: string;
+  ratings: Record<Pool, number | null>;
+  rated: Record<Pool, number>;
+  needsSkill: boolean;
+  stats: Stats;
+  games: Summary[];
+};
+
+const signed = (n: number): string => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "±0");
+
+/** Shown to an account that has not yet said how strong the player is. */
+function ChooseSkill({ onSaved }: { onSaved: () => void }) {
+  const [skill, setSkill] = useState<Skill | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    const response = await api("/api/account/skill", "PUT", skill);
+    if (response.success) onSaved();
+    else setError(response.error);
+  }
+
+  return (
+    <div className="notice">
+      <h2>One thing before you play</h2>
+      <p>Games are rated, so we need a starting point for your rating.</p>
+      <div className="login" style={{ marginTop: 16 }}>
+        <SkillPicker onChange={setSkill} />
+        <div className="actions" style={{ marginTop: 12 }}>
+          <button className="btn accent" type="button" disabled={!skill} onClick={() => void save()}>
+            Save
+          </button>
+          {error && <span className="error">{error}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const SIGNED_OUT = "Sign in first.";
 
@@ -67,6 +107,7 @@ function History({ games }: { games: Summary[] }) {
               {[game.effort, game.timeControl, game.playerColor, game.day].filter(Boolean).join(" · ")}
             </span>
           </span>
+          {game.rating && <span className="meta num">{signed(game.rating.playerAfter - game.rating.playerBefore)}</span>}
           <span className="meta">{outcomeText(game)}</span>
         </Link>
       ))}
@@ -78,6 +119,7 @@ export function Account() {
   const router = useRouter();
   const [data, setData] = useState<AccountData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloads, setReloads] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -93,7 +135,7 @@ export function Account() {
     return () => {
       alive = false;
     };
-  }, [router]);
+  }, [router, reloads]);
 
   async function signOut() {
     await api("/api/account/logout", "POST");
@@ -114,6 +156,22 @@ export function Account() {
   return (
     <>
       <p className="muted">Signed in as {data.email}</p>
+      {data.needsSkill && <ChooseSkill onSaved={() => setReloads((n) => n + 1)} />}
+      <section className="section">
+        <span className="label">Your ratings</span>
+        <div className="cells">
+          {POOLS.map((pool) => (
+            <div key={pool}>
+              <span className="label">
+                {POOL_LABELS[pool]} · {data.rated[pool]} rated {data.rated[pool] === 1 ? "game" : "games"}
+              </span>
+              <span className="figure" data-testid={`rating-${pool}`}>
+                {data.ratings[pool] ?? "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
       <section className="section">
         <span className="label">
           Record · <span data-testid="stat-played">{overall.played}</span> {overall.played === 1 ? "game" : "games"}

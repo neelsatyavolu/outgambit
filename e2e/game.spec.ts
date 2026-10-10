@@ -1,13 +1,11 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { enter, move } from "./helpers";
 
-const square = (page: Page, name: string) => page.locator(`[data-square="${name}"]`);
-
-async function move(page: Page, from: string, to: string) {
-  await square(page, from).click();
-  await square(page, to).click();
-}
+// One account for this file: created by the first test, signed in to by the last.
+const EMAIL = `player-${Date.now()}@example.com`;
 
 test("a visitor plays a game to the end and the owner watches it", async ({ page, browser }) => {
+  await enter(page, "Create account", EMAIL);
   await page.goto("/");
   await expect(page.getByText("Your games left today")).toBeVisible();
   const icon = await page.locator('link[rel="icon"]').first().getAttribute("href");
@@ -28,9 +26,9 @@ test("a visitor plays a game to the end and the owner watches it", async ({ page
   await expect(result).toContainText("Checkmate.");
   await expect(page.getByTestId("moves")).toContainText("Qh4#");
 
-  // The finished game used one of the visitor's two daily games.
+  // The finished game used one of the player's five daily games.
   await page.getByRole("link", { name: "New game" }).click();
-  await expect(page.getByText("1 / 2")).toBeVisible();
+  await expect(page.getByText("4 / 5")).toBeVisible();
 
   // The owner signs in from a separate browser and opens the same game.
   const ownerContext = await browser.newContext();
@@ -54,6 +52,7 @@ test("the owner can reach the login from the site and a wrong password is refuse
 });
 
 test("a visitor cannot open someone else's game", async ({ page, browser }) => {
+  await enter(page, "Sign in", EMAIL);
   await page.goto("/");
   await page.getByRole("button", { name: "Start game" }).click();
   await page.waitForURL(/\/game\//);

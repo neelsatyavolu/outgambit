@@ -8,8 +8,6 @@ import { poolOf, rate } from "./elo";
 import { modelKey, seedRating } from "./seeds";
 
 const BATCH = 25;
-/** For an account that somehow has no starting rating: the middle of the scale. */
-const UNKNOWN_PLAYER = 1000;
 
 const scoreOf = (game: Game): 0 | 0.5 | 1 => (game.result === "draw" ? 0.5 : game.result === game.playerColor ? 1 : 0);
 
@@ -22,16 +20,17 @@ async function settleOne(db: Db, id: string): Promise<boolean> {
     if (!game) return false;
     const userId = userIdOf(game.playerId);
     const user = userId ? await getUser(tx, userId, true) : null;
-    if (!user) {
-      // A game from before accounts were required: close it out, rating nobody.
+    const pool = poolOf(game.timeControl);
+    const playerBefore = user?.ratings[pool] ?? null;
+    if (!user || playerBefore === null) {
+      // A guest's game, or one played before the player had a starting rating:
+      // close it out without rating anyone.
       await markRated(tx, id, null);
       return false;
     }
-    const pool = poolOf(game.timeControl);
     const key = modelKey(game.provider, game.model, game.effort);
     await ensureModelRating(tx, key, pool, seedRating(game.provider, game.model, game.effort, pool));
     const model = (await lockModelRating(tx, key, pool))!;
-    const playerBefore = user.ratings[pool] ?? UNKNOWN_PLAYER;
     const next = rate({
       player: playerBefore,
       model: model.rating,
