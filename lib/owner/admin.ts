@@ -15,18 +15,20 @@ export type ConnectionStatus = {
   provider: Provider;
   label: string;
   kind: ConnectionKind;
+  /** What using this provider costs the owner, in a few words. */
+  note: string;
   connected: boolean;
   updatedAt: number | null;
 };
 
-export const CONNECTABLE: ReadonlyArray<{ provider: Provider; label: string; kind: ConnectionKind }> = [
-  { provider: "codex", label: "ChatGPT", kind: "oauth" },
-  { provider: "grok", label: "Grok", kind: "oauth" },
-  { provider: "gemini", label: "Gemini", kind: "key" },
-  { provider: "openrouter", label: "OpenRouter", kind: "key" },
-  { provider: "jev", label: "Jev (TypeSafe)", kind: "key" },
-  { provider: "openai", label: "OpenAI Decisions", kind: "key" },
-  { provider: "gateway", label: "Vercel AI Gateway", kind: "key" },
+export const CONNECTABLE: ReadonlyArray<{ provider: Provider; label: string; kind: ConnectionKind; note: string }> = [
+  { provider: "codex", label: "ChatGPT", kind: "oauth", note: "Uses your ChatGPT subscription. Slow games." },
+  { provider: "grok", label: "Grok", kind: "oauth", note: "Uses your Grok subscription. Slow games." },
+  { provider: "gemini", label: "Gemini", kind: "key", note: "Free-tier models only. Slow games." },
+  { provider: "openrouter", label: "OpenRouter", kind: "key", note: "Free models only. Slow games." },
+  { provider: "jev", label: "Jev (TypeSafe)", kind: "key", note: "Fast. About $0.001 a game." },
+  { provider: "openai", label: "OpenAI Decisions", kind: "key", note: "Fast. About $0.003 a game, on an OpenAI API key." },
+  { provider: "gateway", label: "Vercel AI Gateway", kind: "key", note: "Fast decision models. Needs paid gateway credits." },
 ];
 
 export const connectionKind = (provider: string): ConnectionKind | null =>

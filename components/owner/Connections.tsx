@@ -141,6 +141,9 @@ export function Connections({ onChange }: { onChange: () => void }) {
             <span className="meta" style={{ marginLeft: 12 }}>
               {status.connected ? "connected" : "not connected"}
             </span>
+            <span className="muted" style={{ marginLeft: 12 }}>
+              {status.note}
+            </span>
             {note?.provider === status.provider && (
               <span className={note.good ? "muted" : "error"} style={{ marginLeft: 12 }}>
                 {note.text}

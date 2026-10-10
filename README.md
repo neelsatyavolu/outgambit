@@ -23,7 +23,8 @@ scripted test opponent that needs no keys. That switch is ignored in production.
 Open `/owner` and sign in with `OWNER_PASSWORD`.
 
 1. **Connections.** Sign in to ChatGPT and Grok (paste the callback address the
-   sign-in ends on), and paste API keys for Gemini, OpenRouter and TypeSafe.
+   sign-in ends on), and paste API keys for Gemini, OpenRouter, TypeSafe, OpenAI
+   (for the Decisions API) and Vercel AI Gateway. Each row says what it costs.
    "Test" checks each one.
 2. **Models.** Tick the models players may choose. ChatGPT and Grok models come
    from `shared-ai-auth` and start switched off. Gemini and OpenRouter models are
@@ -48,6 +49,7 @@ resetting at midnight Pacific. LLMs get 10+10, 20+20 and 45+30. Jev also gets
 | `pnpm test:coverage` | The same, with coverage |
 | `pnpm test:e2e` | A browser plays a game against the scripted opponent |
 | `pnpm typecheck`, `pnpm lint` | Types and lint |
+| `JEV_BENCH=1 TYPESAFE_API_KEY=… pnpm smoke smoke/jev-strength.smoke.ts` | Plays Jev with and without the code assist, to compare. A few hundred Jev calls. |
 | `pnpm smoke` | Asks every model you have enabled for a real move. Spends quota. Stop `pnpm dev` first when using the local database. |
 
 ## Deploying

@@ -23,15 +23,20 @@ beforeEach(() => resetDb(db));
 describe("connectionStatus", () => {
   it("lists every provider and how each one connects", async () => {
     await saveSecret(db, "jev", { kind: "key", apiKey: "k" }, NOW);
-    expect(await connectionStatus(db)).toEqual([
-      { provider: "codex", label: "ChatGPT", kind: "oauth", connected: false, updatedAt: null },
-      { provider: "grok", label: "Grok", kind: "oauth", connected: false, updatedAt: null },
-      { provider: "gemini", label: "Gemini", kind: "key", connected: false, updatedAt: null },
-      { provider: "openrouter", label: "OpenRouter", kind: "key", connected: false, updatedAt: null },
-      { provider: "jev", label: "Jev (TypeSafe)", kind: "key", connected: true, updatedAt: NOW },
-      { provider: "openai", label: "OpenAI Decisions", kind: "key", connected: false, updatedAt: null },
-      { provider: "gateway", label: "Vercel AI Gateway", kind: "key", connected: false, updatedAt: null },
+    const status = await connectionStatus(db);
+    expect(status.map((c) => [c.provider, c.label, c.kind, c.connected, c.updatedAt])).toEqual([
+      ["codex", "ChatGPT", "oauth", false, null],
+      ["grok", "Grok", "oauth", false, null],
+      ["gemini", "Gemini", "key", false, null],
+      ["openrouter", "OpenRouter", "key", false, null],
+      ["jev", "Jev (TypeSafe)", "key", true, NOW],
+      ["openai", "OpenAI Decisions", "key", false, null],
+      ["gateway", "Vercel AI Gateway", "key", false, null],
     ]);
+    // Each one says what using it costs, so the owner can choose knowingly.
+    expect(status.every((c) => c.note.length > 0)).toBe(true);
+    expect(status.find((c) => c.provider === "openrouter")?.note).toMatch(/free/i);
+
   });
 });
 

@@ -18,16 +18,24 @@ export function Panel() {
 
   return (
     <>
-      <section className="section">
+      <nav className="subnav" aria-label="Owner sections">
+        <a href="#games">Games</a>
+        <a href="#connections">Connections</a>
+        <a href="#models">Models</a>
+      </nav>
+      <section className="section" id="games">
         <span className="label">Games</span>
+        <p className="hint">Live games come first. Open one to watch it, or to step through a finished game.</p>
         <Games />
       </section>
-      <section className="section">
+      <section className="section" id="connections">
         <span className="label">Connections</span>
+        <p className="hint">Sign in or paste a key for each provider you want to offer. Keys are stored encrypted.</p>
         <Connections onChange={() => setVersion((v) => v + 1)} />
       </section>
-      <section className="section">
+      <section className="section" id="models">
         <span className="label">Models offered to players</span>
+        <p className="hint">Tick a model to offer it. It appears on the setup screen once its provider is connected.</p>
         <Models version={version} />
       </section>
       <div className="actions">

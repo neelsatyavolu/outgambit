@@ -38,6 +38,16 @@ function groupByProvider(models: OfferedModel[]): Array<[Provider, OfferedModel[
   return providers.map((p) => [p, models.filter((m) => m.provider === p)]);
 }
 
+/** Splits an opponent's time controls into the quick ones and the slow ones. */
+function timeGroups(offered: string[], all: TimeControl[]): Array<{ name: string; ids: string[] }> {
+  const fast = new Set(all.filter((t) => t.fastOnly).map((t) => t.id));
+  const groups = [
+    { name: "Fast", ids: offered.filter((id) => fast.has(id)) },
+    { name: "Slow", ids: offered.filter((id) => !fast.has(id)) },
+  ];
+  return groups.filter((g) => g.ids.length > 0);
+}
+
 function CapacityCells({ capacity, now }: { capacity: Capacity; now: number }) {
   const left = (c: { used: number; limit: number }) => c.limit - c.used;
   return (
@@ -145,13 +155,14 @@ export function SetupForm() {
 
       {!lobby.activeGameId && lobby.models.length > 0 && (
         <form
+          className="setup"
           onSubmit={(event) => {
             event.preventDefault();
             void start();
           }}
         >
           <section className="section">
-            <span className="label">Opponent</span>
+            <span className="label">1 · Choose an opponent</span>
             <div className="rows" role="radiogroup" aria-label="Opponent">
               {groupByProvider(lobby.models).map(([provider, models]) => (
                 <div key={provider}>
@@ -166,7 +177,7 @@ export function SetupForm() {
                       onClick={() => setChosen(keyOf(m))}
                     >
                       <span className="grow">{m.label}</span>
-                      <span className="meta">{m.timeControls.includes("1+0") ? "bullet to classical" : "slow games"}</span>
+                      <span className="meta">{m.timeControls.includes("1+0") ? "fast · bullet to classical" : "slow games only"}</span>
                     </button>
                   ))}
                 </div>
@@ -174,39 +185,48 @@ export function SetupForm() {
             </div>
           </section>
 
-          {model?.supportsEffort && (
+          <aside className="setup-side">
+            <span className="label">2 · Set up the game</span>
+            {model?.supportsEffort && (
+              <section className="section">
+                <span className="label">Effort</span>
+                <Segmented
+                  label="Effort"
+                  value={effort}
+                  onChange={setEffort}
+                  options={EFFORTS.map((e) => ({ value: e, label: e }))}
+                />
+              </section>
+            )}
+
             <section className="section">
-              <span className="label">Effort</span>
-              <Segmented
-                label="Effort"
-                value={effort}
-                onChange={setEffort}
-                options={EFFORTS.map((e) => ({ value: e, label: e }))}
-              />
+              <span className="label">Time (minutes + seconds per move)</span>
+              {timeGroups(model?.timeControls ?? [], lobby.timeControls).map((group) => (
+                <div className="pair" key={group.name}>
+                  <span className="label">{group.name}</span>
+                  <Segmented
+                    label={`${group.name} time controls`}
+                    value={control}
+                    onChange={setTimeControl}
+                    options={group.ids.map((id) => ({ value: id, label: id }))}
+                  />
+                </div>
+              ))}
             </section>
-          )}
 
-          <section className="section">
-            <span className="label">Time control (minutes + seconds per move)</span>
-            <Segmented
-              label="Time control"
-              value={control}
-              onChange={setTimeControl}
-              options={(model?.timeControls ?? []).map((id) => ({ value: id, label: id }))}
-            />
-          </section>
+            <section className="section">
+              <span className="label">You play</span>
+              <Segmented label="You play" value={side} onChange={setSide} options={SIDES} />
+            </section>
 
-          <section className="section">
-            <span className="label">You play</span>
-            <Segmented label="You play" value={side} onChange={setSide} options={SIDES} />
-          </section>
-
-          <div className="actions">
+            <div className="summary">
+              {model ? `${model.label} · ${control} · you play ${side}` : "Choose an opponent"}
+            </div>
             <button className="btn accent" type="submit" disabled={starting || Boolean(blocked) || !model}>
               {starting ? "Starting…" : "Start game"}
             </button>
             {error && <span className="error">{error}</span>}
-          </div>
+          </aside>
         </form>
       )}
     </>

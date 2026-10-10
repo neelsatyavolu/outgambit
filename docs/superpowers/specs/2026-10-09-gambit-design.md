@@ -113,8 +113,9 @@ type MoveResult =
   | { kind: "provider_error"; message: string };
 ```
 
-Adapters: `codex`, `grok`, `gemini`, `openrouter`, `jev`, plus a scripted `fake`
-adapter that exists only outside production for tests. Each turn is a fresh,
+Adapters: `codex`, `grok`, `gemini`, `openrouter`, `jev`, `openai` (Decisions),
+`gateway` (Vercel AI Gateway), plus a scripted `fake` adapter that exists only
+outside production for tests. Each turn is a fresh,
 stateless request; no conversation is kept between moves.
 
 ### 5.2 LLM adapters
@@ -141,23 +142,36 @@ stateless request; no conversation is kept between moves.
 | gemini | API key | Google Generative Language API |
 | openrouter | API key | `openrouter.ai/api/v1/chat/completions` |
 
-### 5.3 Jev adapter
+### 5.3 Decision models (Jev, OpenAI Decisions, AI Gateway)
 
-Jev (TypeSafe System One, `api.typesafe.ai/v1/systemone`, model `jev-latest`)
-cannot generate text. It answers typed questions about a state.
+These models cannot generate text. They pick one option from a list, in a
+fraction of a second, and they cannot calculate. Three providers use the same
+method (`lib/ai/decision.ts`):
 
-- State: FEN, a text board, side to move, recent moves.
-- One Choice question whose options are the legal moves. Each option's
-  description is built in code (piece, from, to, capture, check) because Jev
-  reads criteria literally and does not calculate.
-- Option order is shuffled on every request, because `jev-1.13` leans toward the
-  first option.
-- The highest-probability option is played. Timeout 3 seconds; one retry; then
-  provider error.
-- The TypeSafe docs state that a Choice accepts up to 255 options. A chess
-  position has at most 218 legal moves, so every move fits in one question.
-- Expectation: Jev plays quickly and weakly. The owner was told this before
-  choosing it for bullet.
+| Provider | Endpoint | Models |
+|---|---|---|
+| Jev (TypeSafe) | `api.typesafe.ai/v1/systemone` | `jev-latest` |
+| OpenAI Decisions | `api.openai.com/v1/decisions` | `gpt-6-luna` |
+| Vercel AI Gateway | `ai-gateway.vercel.sh/v1/evaluate` | `liquid/d1`, `microsoft/microsoft-decision-1` |
+
+- **Code calculates first.** For every legal move, code works out one move
+  ahead: is it checkmate, does it allow checkmate, what does it win, and what
+  could the opponent then take (`lib/chess/tactics.ts`). Only the moves that come
+  out best are offered. A checkmate, or a single surviving move, is played
+  without a call.
+- **The model chooses among sound moves.** Each option is the move in words plus
+  what it does for the position (develops a piece, claims the centre, brings
+  the queen out early).
+- **Order bias.** The same question is asked twice in one request with the
+  options in opposite orders, and the probabilities are added.
+- A Choice accepts up to 255 options on TypeSafe and OpenAI; a chess position
+  has at most 218 legal moves.
+- Measured on 2026-10-09 with the real Jev API: assisted Jev beat unassisted Jev
+  4-0 by checkmate, and beat a random mover 4-0 where unassisted Jev scored 2
+  wins, a draw and an unfinished game. Turns average about 80 ms.
+- All three are fast providers and get the bullet and blitz time controls. The
+  OpenAI and AI Gateway models bill the owner per request, so they start
+  switched off.
 
 ### 5.4 Provider errors
 

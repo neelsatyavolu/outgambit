@@ -34,7 +34,6 @@ function AddModel({ onAdded }: { onAdded: () => void }) {
         void add();
       }}
     >
-      <span className="label">Add a free Gemini or OpenRouter model by ID</span>
       <div className="form-grid">
         <input className="field" aria-label="Model ID" placeholder="Model ID (OpenRouter IDs end in :free)" value={id} onChange={(e) => setId(e.target.value)} />
         <input className="field" aria-label="Label" placeholder="Label players see" value={label} onChange={(e) => setLabel(e.target.value)} />
@@ -63,12 +62,14 @@ function AddModel({ onAdded }: { onAdded: () => void }) {
 function Suggestions({ items, onAdd }: { items: Suggestion[]; onAdd: (model: Suggestion) => void }) {
   if (items.length === 0) return null;
   return (
-    <div className="stack" style={{ marginTop: 24 }}>
-      <span className="label">Suggested free models</span>
-      <p className="muted" style={{ margin: 0 }}>
-        OpenRouter and Gemini are limited to free models; anything else is refused. Gemini is free only while the
-        Google project behind your key has no billing set up.
-      </p>
+    <details className="fold">
+      <summary>Suggested free models ({items.length})</summary>
+      <div className="fold-body">
+        <p className="hint">
+          OpenRouter and Gemini are limited to free models; anything else is refused. Gemini is free only while the
+          Google project behind your key has no billing set up.
+        </p>
+      </div>
       <div className="rows">
         {items.map((model) => (
           <div className="row" key={`${model.provider}/${model.id}`}>
@@ -78,16 +79,14 @@ function Suggestions({ items, onAdd }: { items: Suggestion[]; onAdd: (model: Sug
                 {PROVIDER_LABELS[model.provider]}
               </span>
             </span>
-            <span className="meta num" style={{ textTransform: "none" }}>
-              {model.id}
-            </span>
+            <span className="id">{model.id}</span>
             <button className="btn ghost small" type="button" onClick={() => onAdd(model)}>
               Add
             </button>
           </div>
         ))}
       </div>
-    </div>
+    </details>
   );
 }
 
@@ -131,38 +130,49 @@ export function Models({ version }: { version: number }) {
     reload();
   }
 
+  const providers = [...new Set(models.map((m) => m.provider))];
   return (
     <>
       <div className="rows">
-        {models.map((model) => (
-          <label className="row" key={`${model.provider}/${model.id}`} style={{ cursor: "pointer" }}>
-            <input type="checkbox" checked={model.enabled} onChange={() => void toggle(model)} aria-label={`Offer ${model.label}`} />
-            <span className="grow">
-              {model.label}
-              <span className="meta" style={{ marginLeft: 12 }}>
-                {PROVIDER_LABELS[model.provider]}
-              </span>
-            </span>
-            <span className="meta">
-              {!model.connected ? "provider not connected" : model.enabled ? "offered to players" : "off"}
-            </span>
-            {model.custom && (
-              <button
-                className="btn danger small"
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  void remove(model);
-                }}
-              >
-                Remove
-              </button>
-            )}
-          </label>
-        ))}
+        {providers.map((provider) => {
+          const group = models.filter((m) => m.provider === provider);
+          return (
+            <div key={provider}>
+              <div className="group-title label">
+                {PROVIDER_LABELS[provider]} · {group[0].connected ? "connected" : "not connected"}
+              </div>
+              {group.map((model) => (
+                <label className="row" key={model.id} style={{ cursor: "pointer" }}>
+                  <input type="checkbox" checked={model.enabled} onChange={() => void toggle(model)} aria-label={`Offer ${model.label}`} />
+                  <span className="grow">
+                    {model.label} <span className="id" style={{ marginLeft: 8 }}>{model.id}</span>
+                  </span>
+                  <span className="meta">{model.enabled && model.connected ? "offered" : model.enabled ? "waiting for connection" : "off"}</span>
+                  {model.custom && (
+                    <button
+                      className="btn danger small"
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void remove(model);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </label>
+              ))}
+            </div>
+          );
+        })}
       </div>
       <Suggestions items={suggestions} onAdd={(model) => void addSuggested(model)} />
-      <AddModel onAdded={reload} />
+      <details className="fold">
+        <summary>Add a free Gemini or OpenRouter model by ID</summary>
+        <div className="fold-body">
+          <AddModel onAdded={reload} />
+        </div>
+      </details>
     </>
   );
 }
