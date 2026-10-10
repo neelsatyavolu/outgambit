@@ -1,5 +1,7 @@
-export type Provider = "codex" | "grok" | "gemini" | "openrouter" | "jev" | "fake";
-export type Effort = "low" | "medium" | "high";
+export const PROVIDERS = ["codex", "grok", "gemini", "openrouter", "jev", "fake"] as const;
+export type Provider = (typeof PROVIDERS)[number];
+export const EFFORTS = ["low", "medium", "high"] as const;
+export type Effort = (typeof EFFORTS)[number];
 export type Color = "white" | "black";
 export type Status = "active" | "finished" | "aborted";
 export type Result = "white" | "black" | "draw";
@@ -13,9 +15,6 @@ export type Reason =
   | "resignation"
   | "illegal_move"
   | "provider_error";
-
-export const PROVIDERS: readonly Provider[] = ["codex", "grok", "gemini", "openrouter", "jev", "fake"];
-export const EFFORTS: readonly Effort[] = ["low", "medium", "high"];
 
 export type Game = {
   id: string;

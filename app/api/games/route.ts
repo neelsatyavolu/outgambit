@@ -1,0 +1,50 @@
+import { z } from "zod";
+import { hitRateLimit } from "@/lib/db/rate-limit";
+import { createGame, type CreateError } from "@/lib/game/create";
+import { EFFORTS, PROVIDERS } from "@/lib/game/types";
+import { fail, ok, readBody, sameOrigin } from "@/lib/http";
+import { buildDeps, ipHashOf, playerId } from "@/lib/server/context";
+
+// A slow model's first move runs after the response, inside this limit.
+export const maxDuration = 300;
+
+const schema = z.object({
+  provider: z.enum(PROVIDERS),
+  model: z.string().min(1).max(200),
+  effort: z.enum(EFFORTS).nullish(),
+  timeControl: z.string().min(3).max(10),
+  color: z.enum(["white", "black", "random"]),
+});
+
+const REFUSALS: Record<CreateError, { message: string; status: number }> = {
+  unknown_model: { message: "That opponent is not available.", status: 400 },
+  bad_time_control: { message: "That time control is not available for this opponent.", status: 400 },
+  active_game: { message: "You already have a game in progress.", status: 409 },
+  player_limit: { message: "You have played both of your games for today.", status: 429 },
+  network_limit: { message: "This network has used its games for today.", status: 429 },
+  global_limit: { message: "All of today's games have been played.", status: 429 },
+};
+
+const CREATES_PER_MINUTE = 10;
+
+export async function POST(request: Request) {
+  if (!sameOrigin(request)) return fail("Request refused.", 403);
+  const body = await readBody(request, schema);
+  if (!body) return fail("Choose an opponent, a time control and a color.", 400);
+  const deps = await buildDeps();
+  const ipHash = ipHashOf(request);
+  if (!(await hitRateLimit(deps.db, `create:${ipHash}`, CREATES_PER_MINUTE, 60_000, deps.now()))) {
+    return fail("Too many attempts. Wait a minute and try again.", 429);
+  }
+  const created = await createGame(deps, {
+    playerId: (await playerId({ create: true }))!,
+    ipHash,
+    provider: body.provider,
+    model: body.model,
+    effort: body.effort ?? null,
+    timeControl: body.timeControl,
+    color: body.color,
+  });
+  if (!created.ok) return fail(REFUSALS[created.error].message, REFUSALS[created.error].status);
+  return ok({ id: created.game.id }, 201);
+}

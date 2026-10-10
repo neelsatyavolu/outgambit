@@ -1,0 +1,119 @@
+import "server-only";
+import { testJevKey } from "../ai/jev";
+import type { Db, Queryable } from "../db/client";
+import { listConnections } from "../db/connections";
+import { deleteModel, upsertModel } from "../db/models";
+import type { Provider } from "../game/types";
+import { CUSTOM_PROVIDERS, listForOwner, type LoadCatalog } from "./catalog";
+import { getCredentials, saveSecret } from "./credentials";
+
+export type ConnectionKind = "oauth" | "key";
+export type ConnectionStatus = {
+  provider: Provider;
+  label: string;
+  kind: ConnectionKind;
+  connected: boolean;
+  updatedAt: number | null;
+};
+
+export const CONNECTABLE: ReadonlyArray<{ provider: Provider; label: string; kind: ConnectionKind }> = [
+  { provider: "codex", label: "ChatGPT", kind: "oauth" },
+  { provider: "grok", label: "Grok", kind: "oauth" },
+  { provider: "gemini", label: "Gemini", kind: "key" },
+  { provider: "openrouter", label: "OpenRouter", kind: "key" },
+  { provider: "jev", label: "Jev (TypeSafe)", kind: "key" },
+];
+
+export const connectionKind = (provider: string): ConnectionKind | null =>
+  CONNECTABLE.find((c) => c.provider === provider)?.kind ?? null;
+
+export async function connectionStatus(q: Queryable): Promise<ConnectionStatus[]> {
+  const stored = await listConnections(q);
+  return CONNECTABLE.map((c) => {
+    const found = stored.find((s) => s.provider === c.provider);
+    return { ...c, connected: Boolean(found), updatedAt: found?.updatedAt ?? null };
+  });
+}
+
+/** Stores an API key. False if this provider connects by signing in instead. */
+export async function saveApiKey(q: Queryable, provider: Provider, apiKey: string, now: number): Promise<boolean> {
+  if (connectionKind(provider) !== "key") return false;
+  await saveSecret(q, provider, { kind: "key", apiKey: apiKey.trim() }, now);
+  return true;
+}
+
+const KEY_CHECK_URLS: Partial<Record<Provider, string>> = {
+  gemini: "https://generativelanguage.googleapis.com/v1beta/openai/models",
+  openrouter: "https://openrouter.ai/api/v1/key",
+};
+
+export type TestResult = { ok: true } | { ok: false; error: string };
+
+async function checkKey(provider: Provider, apiKey: string, fetcher: typeof fetch): Promise<TestResult> {
+  if (provider === "jev") {
+    return (await testJevKey(apiKey, fetcher)) ? { ok: true } : { ok: false, error: "TypeSafe refused the key." };
+  }
+  const url = KEY_CHECK_URLS[provider];
+  if (!url) return { ok: false, error: "Nothing to test." };
+  try {
+    const response = await fetcher(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    return response.ok ? { ok: true } : { ok: false, error: `The provider answered HTTP ${response.status}.` };
+  } catch {
+    return { ok: false, error: "Could not reach the provider." };
+  }
+}
+
+/** Makes the cheapest call that proves the stored credentials still work. */
+export async function testConnection(
+  db: Db,
+  provider: Provider,
+  now: number,
+  fetcher: typeof fetch = fetch,
+): Promise<TestResult> {
+  try {
+    const secret = await getCredentials(db, provider, now);
+    if (!secret) return { ok: false, error: "Not connected." };
+    // A sign-in is good if its tokens are valid or could just be refreshed.
+    return secret.kind === "oauth" ? { ok: true } : await checkKey(provider, secret.apiKey, fetcher);
+  } catch {
+    return { ok: false, error: "The sign-in could not be refreshed. Connect again." };
+  }
+}
+
+/** Switches a known model on or off for players. False if there is no such model. */
+export async function setModelEnabled(
+  q: Queryable,
+  provider: Provider,
+  id: string,
+  enabled: boolean,
+  loadCatalog?: LoadCatalog,
+): Promise<boolean> {
+  const model = (await listForOwner(q, loadCatalog)).find((m) => m.provider === provider && m.id === id);
+  if (!model) return false;
+  await upsertModel(q, { provider, modelId: id, label: model.label, supportsEffort: model.supportsEffort, enabled });
+  return true;
+}
+
+export type CustomModel = { provider: Provider; id: string; label: string; supportsEffort: boolean };
+
+/** Adds a model the owner typed in. Only for providers without a shared catalog. */
+export async function addCustomModel(q: Queryable, model: CustomModel): Promise<boolean> {
+  if (!CUSTOM_PROVIDERS.includes(model.provider)) return false;
+  await upsertModel(q, {
+    provider: model.provider,
+    modelId: model.id.trim(),
+    label: model.label.trim(),
+    supportsEffort: model.supportsEffort,
+    enabled: true,
+  });
+  return true;
+}
+
+export async function removeCustomModel(q: Queryable, provider: Provider, id: string): Promise<boolean> {
+  if (!CUSTOM_PROVIDERS.includes(provider)) return false;
+  await deleteModel(q, provider, id);
+  return true;
+}
