@@ -113,7 +113,8 @@ type MoveResult =
   | { kind: "provider_error"; message: string };
 ```
 
-Adapters: `codex`, `grok`, `gemini`, `openrouter`, `jev`. Each turn is a fresh,
+Adapters: `codex`, `grok`, `gemini`, `openrouter`, `jev`, plus a scripted `fake`
+adapter that exists only outside production for tests. Each turn is a fresh,
 stateless request; no conversation is kept between moves.
 
 ### 5.2 LLM adapters
@@ -148,10 +149,8 @@ cannot generate text. It answers typed questions about a state.
   first option.
 - The highest-probability option is played. Timeout 3 seconds; one retry; then
   provider error.
-- **Open item, tested first in the plan:** the docs give no maximum number of
-  options per Choice. A spike sends a position with 40+ legal moves. If there is
-  a cap, the adapter splits the moves into chunks, asks one Choice per chunk in a
-  single request, then asks a final Choice among the chunk winners.
+- The TypeSafe docs state that a Choice accepts up to 255 options. A chess
+  position has at most 218 legal moves, so every move fits in one question.
 - Expectation: Jev plays quickly and weakly. The owner was told this before
   choosing it for bullet.
 
@@ -191,7 +190,8 @@ player as "the AI is unavailable", and the slot is returned.
 ### 7.1 Stack
 
 - Next.js (App Router, TypeScript) on Vercel.
-- Neon Postgres through the Vercel Marketplace.
+- Neon Postgres through the Vercel Marketplace. Tests and local development use
+  PGlite (Postgres in-process), so nothing needs provisioning to run the app.
 - `chess.js` for rules; `react-chessboard` for the board.
 - `@neelsatyavolu/shared-ai-auth` for OAuth and the ChatGPT/Grok model catalog.
 - `zod` for request validation.
@@ -224,7 +224,7 @@ The "day" of a game is `created_at` converted to America/Los_Angeles.
 
 ### 7.4 API
 
-All responses use `{ ok, data, error }`.
+All responses use `{ success, data, error }`.
 
 | Route | Purpose |
 |---|---|
@@ -280,8 +280,8 @@ The app refuses to start if any is missing.
 - All request bodies validated with `zod`; moves validated by `chess.js`.
 - State-changing routes accept JSON only and check the `Origin` header.
 - Parameterised SQL only.
-- Rate limits on owner login and game creation through Vercel Firewall rules;
-  if the plan lacks them, a small counter in Postgres instead.
+- Rate limits on owner login and game creation through a small fixed-window
+  counter in Postgres (table `rate_limits`).
 - Error messages shown to players never include provider responses.
 
 ## 8. Risks
@@ -290,7 +290,6 @@ The app refuses to start if any is missing.
   subscription sign-ins likely breaks those providers' terms and could get the
   accounts suspended. Raised with the owner on 2026-10-09, who continued with the
   design; the daily caps limit exposure but do not remove the risk.
-- **Jev option cap.** Unknown until the spike in 5.3.
 - **Slow models flagging.** High effort at 10+10 may lose on time. Accepted; the
   prompt tells the model its remaining time.
 - **Limit evasion.** A determined visitor can change cookie and IP. The global
