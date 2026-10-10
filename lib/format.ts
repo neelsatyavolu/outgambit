@@ -38,6 +38,14 @@ const REASON_LABELS: Record<Reason, string> = {
 
 export const reasonText = (reason: Reason): string => REASON_LABELS[reason];
 
+/** A player's own game in a few words: "won · checkmate", "live". */
+export function outcomeText(game: Pick<GameView, "status" | "result" | "reason" | "playerColor">): string {
+  if (game.status === "active") return "live";
+  if (game.status === "aborted" || !game.result || !game.reason) return "aborted";
+  const verdict = game.result === "draw" ? "draw" : game.result === game.playerColor ? "won" : "lost";
+  return `${verdict} · ${reasonText(game.reason)}`;
+}
+
 type Finished = Pick<GameView, "status" | "result" | "reason" | "playerColor" | "modelLabel">;
 
 function detailFor(game: Finished, spectator: boolean): string {

@@ -20,7 +20,7 @@ Success means:
 
 | Topic | Decision |
 |---|---|
-| Player identity | Anonymous. Cookie plus hashed IP. No accounts. |
+| Player identity | Anonymous by default: cookie plus hashed IP. An optional email-and-password account keeps a player's games and stats across devices (added 2026-10-09, see 4.6). |
 | AI turn display | The move only, with a thinking indicator. No commentary. |
 | Architecture | Next.js on Vercel with Postgres; one-second polling for live state. |
 | Illegal AI moves | Two retries, then the AI forfeits. |
@@ -31,10 +31,12 @@ Success means:
 ## 3. Scope
 
 In scope: setup screen, game screen, five AI providers, daily limits, clocks,
-owner panel (connections, models, live and finished games).
+owner panel (connections, models, live and finished games), optional player
+accounts with stats and game history.
 
-Out of scope: player accounts, ratings or leaderboards, public spectating, draw
-offers, AI commentary, premoves, sound, engine analysis, human-vs-human play.
+Out of scope: ratings or leaderboards, public spectating, draw offers, AI
+commentary, premoves, sound, engine analysis, human-vs-human play. For accounts:
+email verification, password reset, password change and account deletion.
 
 ## 4. Player experience
 
@@ -94,6 +96,30 @@ All three numbers live in one config file.
 Checkmate, stalemate, threefold repetition, fifty-move rule, insufficient
 material, timeout, player resignation, AI forfeit by illegal move, or abort by
 provider error.
+
+### 4.6 Accounts (`/account`)
+
+Signing in is optional; a guest still plays without it. An account exists so a
+player can see their record and past games from any browser.
+
+- **Sign-in.** Email and password only. Gambit sends no email, so an address is
+  never verified and a forgotten password cannot be recovered by the player.
+  Passwords are 8 to 200 characters.
+- **Identity.** A signed-in player plays under the id `account:<user id>`.
+  Every ownership check, the daily limits and the one-active-game rule use it
+  in place of the anonymous cookie id. The anonymous cookie is unsigned and
+  accepts only UUIDs, so no cookie value can name an account's games; only a
+  signed session can.
+- **Guest games carry over.** On registering or signing in, the games played
+  under this browser's anonymous id move to the account. Games a guest played
+  today therefore count toward the account's daily limit.
+- **Stats.** Counted on each read from finished games only (aborted and live
+  games are left out): won, lost, drawn and win rate, overall and split by
+  model, by time control and by colour.
+- **History.** The player's last 100 games, live first. Each opens the game
+  screen, where a finished game can be stepped through move by move.
+- **Session.** A signed cookie lasting 30 days. Nothing about it is stored, so
+  one session cannot be ended early from the server.
 
 ## 5. AI move generation
 
@@ -230,6 +256,10 @@ mutate their inputs.
 | `moves` | game id, ply, SAN, UCI, FEN after, ms spent, created at |
 | `connections` | provider, encrypted secret (OAuth tokens or API key), updated at |
 | `models` | provider, model ID, label, supports effort, enabled |
+| `users` | id (UUID), email (unique, lower case), password hash (scrypt, salted), created at |
+
+A game's player id is the anonymous cookie id for a guest and
+`account:<user id>` for a signed-in player.
 
 The "day" of a game is `created_at` converted to America/Los_Angeles.
 
@@ -248,9 +278,14 @@ All responses use `{ success, data, error }`.
 | `/api/owner/connections/*` | Start and finish OAuth, set and test keys, remove |
 | `/api/owner/models` | List, add, enable, disable |
 | `GET /api/owner/games` | Game list for the owner |
+| `POST /api/account/register` | Create an account, claim this browser's games, sign in |
+| `POST /api/account/login` | Sign in and claim this browser's games |
+| `POST /api/account/logout` | End the session on this browser |
+| `GET /api/account` | The signed-in player's email, stats and last 100 games |
 
-A player may read and act only on games whose cookie ID matches theirs. The owner
-session may read any game.
+A player may read and act only on games whose player id matches theirs: the
+account id when signed in, otherwise the cookie id. The owner session may read
+any game.
 
 ### 7.5 Turn flow
 
@@ -298,6 +333,13 @@ The app refuses to start if any is missing.
 - Rate limits on owner login and game creation through a small fixed-window
   counter in Postgres (table `rate_limits`).
 - Error messages shown to players never include provider responses.
+- Account passwords are stored only as salted scrypt hashes (N=2^15, r=8, p=3).
+- Account sign-in is limited to 10 attempts per network and 30 per email in 15
+  minutes, and registration to 5 accounts per network per hour. The per-email
+  limit is the higher one so that a single network cannot lock a player out.
+  Several networks working together still can, for 15 minutes at a time.
+- A failed sign-in gives the same answer whether or not the email is registered.
+  Registration does say when an email is taken.
 
 ## 8. Risks
 
@@ -309,6 +351,11 @@ The app refuses to start if any is missing.
   prompt tells the model its remaining time.
 - **Limit evasion.** A determined visitor can change cookie and IP. The global
   cap of 10 bounds the cost.
+- **Unverified emails.** Anyone can register an address they do not own, which
+  blocks its real owner from using it here. Accepted with the owner on
+  2026-10-09 in exchange for running no email service.
+- **Lost passwords.** There is no reset. The owner can only help by replacing
+  the stored hash in the database by hand.
 
 ## 9. Testing
 
