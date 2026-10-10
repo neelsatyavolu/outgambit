@@ -1,3 +1,4 @@
+import type { GameTally } from "../account/stats";
 import type { Game, Move, Reason, Result, Status } from "../game/types";
 import type { Db, Queryable, Row } from "./client";
 import { fromTs, fromTsOrNull, toTs, toTsOrNull } from "./time";
@@ -93,6 +94,42 @@ export async function listGames(q: Queryable, limit: number): Promise<Game[]> {
     [limit],
   );
   return rows.map(rowToGame);
+}
+
+/** One player's games: live first, then the most recent. */
+export async function listGamesFor(q: Queryable, playerId: string, limit: number): Promise<Game[]> {
+  const rows = await q.query(
+    "SELECT * FROM games WHERE player_id = $1 ORDER BY (status = 'active') DESC, created_at DESC LIMIT $2",
+    [playerId, limit],
+  );
+  return rows.map(rowToGame);
+}
+
+/** Hands every game played as `from` to `to`. Returns how many moved. */
+export async function claimGames(q: Queryable, from: string, to: string): Promise<number> {
+  const rows = await q.query("UPDATE games SET player_id = $2 WHERE player_id = $1 RETURNING id", [from, to]);
+  return rows.length;
+}
+
+/** A player's finished games, counted per model, time control and colour. */
+export async function tallyFor(q: Queryable, playerId: string): Promise<GameTally[]> {
+  const rows = await q.query(
+    `SELECT model_label, time_control, player_color,
+            count(*)::int AS played,
+            (count(*) FILTER (WHERE result = player_color))::int AS won,
+            (count(*) FILTER (WHERE result = 'draw'))::int AS drawn
+       FROM games WHERE player_id = $1 AND status = 'finished'
+      GROUP BY model_label, time_control, player_color`,
+    [playerId],
+  );
+  return rows.map((r) => ({
+    modelLabel: r.model_label as string,
+    timeControl: r.time_control as string,
+    playerColor: r.player_color as Game["playerColor"],
+    played: r.played as number,
+    won: r.won as number,
+    drawn: r.drawn as number,
+  }));
 }
 
 export type Ending = { status: Exclude<Status, "active">; result: Result | null; reason: Reason };

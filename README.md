@@ -34,6 +34,15 @@ Open `/owner` and sign in with `OWNER_PASSWORD`.
 3. **Games.** Live games are listed first. Open one to watch it; finished games
    can be stepped through.
 
+## Accounts
+
+Signing in is optional. A visitor can create an account at `/account` with an
+email and a password to keep their stats and game history across browsers; the
+games already played in that browser move to the account. Gambit sends no email,
+so addresses are not verified and there is no password reset.
+
+Sessions are signed with `SECRETS_KEY`, so changing it signs every player out.
+
 ## Limits and time controls
 
 All in `lib/config.ts`: 2 games per player per day, 4 per network, 10 overall,
