@@ -84,3 +84,7 @@ poll. Limits by network rely on the `x-forwarded-for` header Vercel sets.
 Changing `OWNER_PASSWORD` signs the owner out everywhere.
 
 Changing `SECRETS_KEY` makes stored connections unreadable; reconnect them after.
+
+## License
+
+MIT. See `LICENSE`.
