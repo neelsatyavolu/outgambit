@@ -83,6 +83,7 @@ All three numbers live in one config file.
 | Per network per day (backstop) | 4 | Hashed IP |
 | Everyone per day | 10 | Global |
 
+- A new game must pass all three checks.
 - A game uses a slot when it is created. Aborted games do not count.
 - One game in progress per player at a time.
 - Closing the tab does not pause the clocks. The player can return from the same
@@ -151,7 +152,8 @@ cannot generate text. It answers typed questions about a state.
   options per Choice. A spike sends a position with 40+ legal moves. If there is
   a cap, the adapter splits the moves into chunks, asks one Choice per chunk in a
   single request, then asks a final Choice among the chunk winners.
-- Expectation: Jev plays quickly and weakly. This is accepted.
+- Expectation: Jev plays quickly and weakly. The owner was told this before
+  choosing it for bullet.
 
 ### 5.4 Provider errors
 
@@ -286,7 +288,8 @@ The app refuses to start if any is missing.
 
 - **Provider terms.** Serving the public from personal ChatGPT and Grok
   subscription sign-ins likely breaks those providers' terms and could get the
-  accounts suspended. The owner has accepted this; the daily caps limit exposure.
+  accounts suspended. Raised with the owner on 2026-10-09, who continued with the
+  design; the daily caps limit exposure but do not remove the risk.
 - **Jev option cap.** Unknown until the spike in 5.3.
 - **Slow models flagging.** High effort at 10+10 may lose on time. Accepted; the
   prompt tells the model its remaining time.
