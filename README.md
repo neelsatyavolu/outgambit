@@ -50,6 +50,10 @@ resetting at midnight Pacific. LLMs get 10+10, 20+20 and 45+30. Jev also gets
 
 ## Deploying
 
+Live at https://silicongambit.vercel.app (Vercel project `gambit`, Neon
+database `gambit-db`). There is no Git integration; ship a change with
+`vercel deploy --prod` from this folder.
+
 Vercel with a Neon Postgres database. Set `DATABASE_URL`, `OWNER_PASSWORD`,
 `SECRETS_KEY` and `IP_SALT`, using Neon's pooled connection string. Tables are
 created on first use. Slow models think after the response is sent, inside a
