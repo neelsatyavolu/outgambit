@@ -28,6 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/ratings">Ratings</Link>
               <Link href="/account">Account</Link>
               <Link href="/owner">Owner</Link>
+              <a href="https://github.com/neelsatyavolu/outgambit" target="_blank" rel="noreferrer">
+                GitHub
+              </a>
             </nav>
           </header>
           <main>{children}</main>

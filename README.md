@@ -71,7 +71,7 @@ table.
 
 ## Deploying
 
-Live at https://silicongambit.vercel.app (Vercel project `gambit`, Neon
+Live at https://outgambit.n3el.dev (Vercel project `gambit`, Neon
 database `gambit-db`). There is no Git integration; ship a change with
 `vercel deploy --prod` from this folder.
 
