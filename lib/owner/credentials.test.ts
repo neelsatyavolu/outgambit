@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { resetDb, testDb } from "@/test/db";
+import { pausingAfter, resetDb, testDb } from "@/test/db";
 import type { Db } from "../db/client";
 import { getConnection } from "../db/connections";
 import { getCredentials, readSecret, saveSecret, type Refresh } from "./credentials";
@@ -65,7 +65,12 @@ describe("getCredentials", () => {
       refreshes += 1;
       return { accessToken: `at-${refreshes + 1}`, refreshToken: "rt-2", expiresAt: NOW + 3_600_000 };
     };
-    const [a, b] = await Promise.all([getCredentials(db, "grok", NOW, refresh), getCredentials(db, "grok", NOW, refresh)]);
+    // Each caller lingers after reading the stored tokens inside its transaction.
+    const racing = pausingAfter(db, /FROM connections/);
+    const [a, b] = await Promise.all([
+      getCredentials(racing, "grok", NOW, refresh),
+      getCredentials(racing, "grok", NOW, refresh),
+    ]);
     expect(refreshes).toBe(1);
     expect(a).toEqual(b);
   });

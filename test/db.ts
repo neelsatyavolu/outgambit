@@ -23,3 +23,25 @@ async function isolatedSchema(url: string): Promise<Db> {
 export async function resetDb(db: Db): Promise<void> {
   await db.query("TRUNCATE games, moves, connections, models, rate_limits");
 }
+
+/**
+ * The same database, but pausing after any query inside a transaction that
+ * matches `pattern`. Holding a transaction open between its read and its
+ * write is what makes a missing lock show up as a failed test on a real
+ * server, where two fast transactions would otherwise rarely overlap.
+ */
+export function pausingAfter(db: Db, pattern: RegExp, ms = 40): Db {
+  return {
+    query: db.query,
+    transaction: (fn) =>
+      db.transaction((tx) =>
+        fn({
+          query: async (sql, params) => {
+            const rows = await tx.query(sql, params);
+            if (pattern.test(sql)) await new Promise((resolve) => setTimeout(resolve, ms));
+            return rows;
+          },
+        } as typeof tx),
+      ),
+  };
+}

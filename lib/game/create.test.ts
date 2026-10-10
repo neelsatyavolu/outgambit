@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { resetDb, testDb } from "@/test/db";
+import { pausingAfter, resetDb, testDb } from "@/test/db";
 import { NOON, START_FEN } from "@/test/factory";
 import { harness, input } from "@/test/game";
 import type { Db } from "../db/client";
@@ -120,9 +120,11 @@ describe("createGame", () => {
   it("gives out only the last slot when two visitors ask at once", async () => {
     const h = harness(db);
     for (let i = 0; i < 9; i++) await playOne(h, { playerId: `p${i}`, ipHash: `i${i}` });
+    // Each request lingers between counting the day's games and adding its own.
+    const racing = { ...h.deps, db: pausingAfter(db, /count\(\*\)/) };
     const results = await Promise.all([
-      createGame(h.deps, input({ playerId: "x", ipHash: "ix" })),
-      createGame(h.deps, input({ playerId: "y", ipHash: "iy" })),
+      createGame(racing, input({ playerId: "x", ipHash: "ix" })),
+      createGame(racing, input({ playerId: "y", ipHash: "iy" })),
     ]);
     expect(results.filter((r) => r.ok)).toHaveLength(1);
     expect(results.find((r) => !r.ok)).toEqual({ ok: false, error: "global_limit" });

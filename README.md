@@ -42,6 +42,7 @@ resetting at midnight Pacific. LLMs get 10+10, 20+20 and 45+30. Jev also gets
 | Command | What it runs |
 |---|---|
 | `pnpm test` | Unit and integration tests (in-memory Postgres, fake AI) |
+| `TEST_DATABASE_URL=postgres://… pnpm test` | The same tests against a real Postgres server. The locking tests only prove anything here, because the in-memory database runs one transaction at a time. |
 | `pnpm test:coverage` | The same, with coverage |
 | `pnpm test:e2e` | A browser plays a game against the scripted opponent |
 | `pnpm typecheck`, `pnpm lint` | Types and lint |
@@ -50,7 +51,11 @@ resetting at midnight Pacific. LLMs get 10+10, 20+20 and 45+30. Jev also gets
 ## Deploying
 
 Vercel with a Neon Postgres database. Set `DATABASE_URL`, `OWNER_PASSWORD`,
-`SECRETS_KEY` and `IP_SALT`. Tables are created on first use. Slow models think
-after the response is sent, inside a 300-second function limit.
+`SECRETS_KEY` and `IP_SALT`, using Neon's pooled connection string. Tables are
+created on first use. Slow models think after the response is sent, inside a
+300-second function limit; a turn that needs longer is picked up by the next
+poll. Limits by network rely on the `x-forwarded-for` header Vercel sets.
+
+Changing `OWNER_PASSWORD` signs the owner out everywhere.
 
 Changing `SECRETS_KEY` makes stored connections unreadable; reconnect them after.

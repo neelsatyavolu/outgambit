@@ -126,6 +126,11 @@ stateless request; no conversation is kept between moves.
 - On `invalid`, retry up to twice with a message naming the rejected reply. A
   third `invalid` forfeits the game for the AI.
 - Per-call timeout: the smaller of the AI's remaining clock and 240 seconds.
+- One background job works on a turn for at most 270 seconds. If another full
+  call would not fit, the job gives the turn up and the next poll starts a new
+  one. Counts of illegal replies and provider failures are stored on the game,
+  so they carry across that hand-over.
+- A reply with no text counts as a provider failure, not an illegal move.
 - Effort maps to each provider's own parameter. The exact field for Gemini and
   OpenRouter is confirmed against current provider docs during implementation.
 
@@ -190,7 +195,8 @@ player as "the AI is unavailable", and the slot is returned.
 ### 7.1 Stack
 
 - Next.js (App Router, TypeScript) on Vercel.
-- Neon Postgres through the Vercel Marketplace. Tests and local development use
+- Neon Postgres through the Vercel Marketplace, reached with the standard `pg`
+  driver. Tests and local development use
   PGlite (Postgres in-process), so nothing needs provisioning to run the app.
 - `chess.js` for rules; `react-chessboard` for the board.
 - `@neelsatyavolu/shared-ai-auth` for OAuth and the ChatGPT/Grok model catalog.
@@ -254,12 +260,16 @@ session may read any game.
      background (`after()`, with the route's maximum duration raised). The
      Vercel plan's duration limit is confirmed in the plan; the per-call timeout
      is lowered to fit if needed.
-3. **Poll.** `GET /api/games/[id]` returns position, clocks and status. Before
+3. **Sweep.** Loading the setup screen, the owner's game list, or starting a
+   game first ends every active game whose side to move has run out of time, so
+   abandoned games do not stay "live".
+4. **Poll.** `GET /api/games/[id]` returns position, clocks and status. Before
    answering it:
    - ends the game if the side to move has run out of time;
    - restarts the AI turn if it is the AI's move and the lease has expired.
-4. **AI commit.** An AI move is saved only if the game is still at the ply the
-   AI was asked about, so a restarted turn cannot play twice.
+5. **AI commit.** An AI move is saved only if the game is still at the ply the
+   AI was asked about, so a restarted turn cannot play twice. Ending a game
+   (timeout, forfeit, abort) is guarded by the same ply check.
 
 Clock shown to clients: stored remaining time minus time since `turn_started_at`
 for the side to move. Browsers tick locally between polls.
