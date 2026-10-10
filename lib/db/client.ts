@@ -42,6 +42,10 @@ export async function createPostgresDb(url: string, schema?: string): Promise<Db
   // uncaught exception, which would take down the instance and any AI turn
   // running in it. The pool replaces the connection on the next query.
   pool.on("error", (error) => console.error("[gambit] idle database connection lost:", error.message));
+  // On Vercel, lets the platform close idle connections before it suspends
+  // an instance. It does nothing anywhere else.
+  const { attachDatabasePool } = await import("@vercel/functions");
+  attachDatabasePool(pool);
   return {
     query: async <T>(sql: string, params: unknown[] = []) => (await pool.query(sql, params)).rows as T[],
     transaction: async <T>(fn: (tx: Queryable) => Promise<T>) => {

@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@neelsatyavolu/shared-ai-auth": "github:neelsatyavolu/shared-ai-auth#31ac039",
+    "@vercel/functions": "^3.9.11",
     "chess.js": "^1.4.0",
     "next": "16.4.0",
     "pg": "^8.23.1",
