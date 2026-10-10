@@ -207,6 +207,15 @@ describe("games", () => {
     expect(await countForDay(db, "2026-10-09", "a", "x")).toEqual({ global: 3, player: 2, ip: 2 });
   });
 
+  it("restarts the turn's clock with a lease when asked to", async () => {
+    const game = makeGame();
+    await insertGame(db, game);
+    expect(await claimLease(db, game.id, 0, NOON + 9_000, NOON + 20_000)).toBe(true);
+    expect((await getGame(db, game.id))?.turnStartedAt).toBe(NOON);
+    expect(await claimLease(db, game.id, 0, NOON + 30_000, NOON + 40_000, true)).toBe(true);
+    expect(await getGame(db, game.id)).toMatchObject({ turnStartedAt: NOON + 30_000, aiLeaseUntil: NOON + 40_000 });
+  });
+
   it("finds a player's active game", async () => {
     const done = makeGame({ status: "finished" });
     const live = makeGame();
@@ -241,9 +250,18 @@ describe("models", () => {
     const row = { provider: "openrouter", modelId: "x/y:free", label: "Y", supportsEffort: false, enabled: true } as const;
     await upsertModel(db, row);
     await upsertModel(db, { ...row, enabled: false });
-    expect(await listModelRows(db)).toEqual([{ ...row, enabled: false }]);
+    expect(await listModelRows(db)).toEqual([{ ...row, enabled: false, arena: null }]);
     await deleteModel(db, "openrouter", "x/y:free");
     expect(await listModelRows(db)).toEqual([]);
+  });
+
+  it("keeps a model's place in the arena when the rest of it is saved again", async () => {
+    const row = { provider: "codex", modelId: "gpt-a", label: "GPT A", supportsEffort: true, enabled: true } as const;
+    await upsertModel(db, { ...row, arena: true });
+    await upsertModel(db, { ...row, enabled: false });
+    expect(await listModelRows(db)).toEqual([{ ...row, enabled: false, arena: true }]);
+    await upsertModel(db, { ...row, arena: false });
+    expect((await listModelRows(db))[0].arena).toBe(false);
   });
 });
 

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/client/api";
+import { Arena } from "./Arena";
 import { Connections } from "./Connections";
 import { Games } from "./Games";
 import { Models } from "./Models";
@@ -22,6 +23,7 @@ export function Panel() {
         <a href="#games">Games</a>
         <a href="#connections">Connections</a>
         <a href="#models">Models</a>
+        <a href="#arena">Arena</a>
       </nav>
       <section className="section" id="games">
         <span className="label">Games</span>
@@ -36,7 +38,15 @@ export function Panel() {
       <section className="section" id="models">
         <span className="label">Models offered to players</span>
         <p className="hint">Tick a model to offer it. It appears on the setup screen once its provider is connected.</p>
-        <Models version={version} />
+        <Models version={version} onChange={() => setVersion((v) => v + 1)} />
+      </section>
+      <section className="section" id="arena">
+        <span className="label">Arena</span>
+        <p className="hint">
+          Models play each other here so the ratings rest on more games. Every move is a call to a provider, so the
+          arena starts one game an hour at most, up to the number you set, and only between the models you tick.
+        </p>
+        <Arena version={version} />
       </section>
       <div className="actions">
         <button className="btn ghost" type="button" onClick={() => void signOut()}>

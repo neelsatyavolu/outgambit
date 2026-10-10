@@ -4,7 +4,8 @@ import { resetDb, testDb } from "@/test/db";
 import type { Db } from "../db/client";
 import { getConnection } from "../db/connections";
 import {
-  addCustomModel, connectionStatus, removeCustomModel, saveApiKey, setModelEnabled, suggestedFreeModels, testConnection,
+  addCustomModel, connectionStatus, removeCustomModel, saveApiKey, setModelArena, setModelEnabled, suggestedFreeModels,
+  testConnection,
 } from "./admin";
 import { upsertModel } from "../db/models";
 import { listForOwner } from "./catalog";
@@ -125,6 +126,17 @@ describe("models", () => {
 
   it("refuses to switch a model that does not exist", async () => {
     expect(await setModelEnabled(db, "codex", "made-up", true, loadCatalog)).toBe(false);
+  });
+
+  it("puts a model in the arena and takes it out, leaving whether it is offered alone", async () => {
+    const model = async () => (await listForOwner(db, loadCatalog)).find((m) => m.id === "gpt-a");
+    expect(await setModelArena(db, "codex", "gpt-a", true, loadCatalog)).toBe(true);
+    expect(await model()).toMatchObject({ arena: true, enabled: false });
+    await setModelEnabled(db, "codex", "gpt-a", true, loadCatalog);
+    expect(await model()).toMatchObject({ arena: true, enabled: true });
+    await setModelArena(db, "codex", "gpt-a", false, loadCatalog);
+    expect(await model()).toMatchObject({ arena: false, enabled: true });
+    expect(await setModelArena(db, "codex", "made-up", true, loadCatalog)).toBe(false);
   });
 
   it("adds a hand-entered free model, switched on, and keeps its details when toggled", async () => {

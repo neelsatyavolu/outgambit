@@ -108,6 +108,21 @@ export async function setModelEnabled(
   return true;
 }
 
+/** Puts a known model in the arena or takes it out. False if there is no such model. */
+export async function setModelArena(
+  q: Queryable,
+  provider: Provider,
+  id: string,
+  arena: boolean,
+  loadCatalog?: LoadCatalog,
+): Promise<boolean> {
+  const model = (await listForOwner(q, loadCatalog)).find((m) => m.provider === provider && m.id === id);
+  if (!model) return false;
+  const { label, supportsEffort, enabled } = model;
+  await upsertModel(q, { provider, modelId: id, label, supportsEffort, enabled, arena });
+  return true;
+}
+
 export type CustomModel = { provider: Provider; id: string; label: string; supportsEffort: boolean };
 
 export type AddResult = { ok: true } | { ok: false; error: string };

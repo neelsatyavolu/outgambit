@@ -19,6 +19,7 @@ export function makeGame(overrides: Partial<Game> = {}): Game {
     initialMs: 600_000,
     incrementMs: 10_000,
     playerColor: "white",
+    rival: null,
     fen: START_FEN,
     ply: 0,
     whiteMs: 600_000,

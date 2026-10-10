@@ -9,7 +9,7 @@ import { getAdapter } from "../ai/registry";
 import { getDb } from "../db/client";
 import type { Deps } from "../game/deps";
 import { clientIp, fail, hashIp, isPlayerId, sameOrigin } from "../http";
-import { findOffered } from "../owner/catalog";
+import { findOffered, listEntrants } from "../owner/catalog";
 import { OWNER_COOKIE, isValidSession } from "../owner/session";
 
 export const PLAYER_COOKIE = "gambit_player";
@@ -23,7 +23,7 @@ export async function buildDeps(): Promise<Deps> {
   return {
     db,
     now: Date.now,
-    adapterFor: (game, options) => getAdapter(db, game.provider, Date.now(), fetch, options),
+    adapterFor: (seat, options) => getAdapter(db, seat.provider, Date.now(), fetch, options),
     schedule: (job) =>
       after(async () => {
         try {
@@ -33,6 +33,7 @@ export async function buildDeps(): Promise<Deps> {
         }
       }),
     findModel: (provider, id) => findOffered(db, provider, id),
+    entrants: () => listEntrants(db),
     random: Math.random,
   };
 }

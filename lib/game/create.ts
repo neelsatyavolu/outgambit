@@ -49,6 +49,7 @@ function newGame(deps: Deps, input: CreateInput, model: OfferedModel, now: numbe
     initialMs: control.initialMs,
     incrementMs: control.incrementMs,
     playerColor,
+    rival: null,
     fen: replay([]).fen,
     ply: 0,
     whiteMs: control.initialMs,

@@ -90,13 +90,16 @@ function Suggestions({ items, onAdd }: { items: Suggestion[]; onAdd: (model: Sug
   );
 }
 
-/** `version` changes whenever a connection changes, so the list reloads. */
-export function Models({ version }: { version: number }) {
+/** `version` changes whenever a connection changes, so the list reloads. `onChange` reports a change made here. */
+export function Models({ version, onChange }: { version: number; onChange: () => void }) {
   const [models, setModels] = useState<OwnerModel[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
 
   const [edits, setEdits] = useState(0);
-  const reload = () => setEdits((n) => n + 1);
+  const reload = () => {
+    setEdits((n) => n + 1);
+    onChange();
+  };
 
   useEffect(() => {
     let alive = true;

@@ -81,6 +81,17 @@ const STATEMENTS = [
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS player_rating_after integer`,
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_rating_before integer`,
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_rating_after integer`,
+  // An arena game has a second model, in the seat a player would otherwise take.
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS rival_provider text`,
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS rival_model text`,
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS rival_label text`,
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS rival_effort text`,
+  // Whether a model takes part in the arena. Null means the provider's default.
+  `ALTER TABLE models ADD COLUMN IF NOT EXISTS arena boolean`,
+  `CREATE TABLE IF NOT EXISTS settings (
+    key text PRIMARY KEY,
+    value text NOT NULL
+  )`,
 ];
 
 /** Creates any missing tables and columns. Safe to run on every start. */

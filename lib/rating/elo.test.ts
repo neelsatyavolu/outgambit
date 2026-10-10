@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LEVELS, expectedScore, poolOf, rate, startingRatings } from "./elo";
+import { LEVELS, expectedScore, poolOf, rate, rateModels, startingRatings } from "./elo";
 
 describe("poolOf", () => {
   it("puts the quick time controls in the bullet pool and the rest in regular", () => {
@@ -73,5 +73,24 @@ describe("rate", () => {
 
   it("never drops a rating below 100", () => {
     expect(rate({ player: 105, model: 100, score: 0, playerGames: 0, modelGames: 0 }).player).toBe(100);
+  });
+});
+
+describe("rateModels", () => {
+  it("moves two equal models the same distance apart", () => {
+    expect(rateModels(1000, 1000, 1)).toEqual({ a: 1008, b: 992 });
+    expect(rateModels(1000, 1000, 0)).toEqual({ a: 992, b: 1008 });
+    expect(rateModels(1000, 1000, 0.5)).toEqual({ a: 1000, b: 1000 });
+  });
+
+  it("rewards an upset more than an expected win", () => {
+    const upset = rateModels(800, 1200, 1);
+    const expected = rateModels(1200, 800, 1);
+    expect(upset.a - 800).toBeGreaterThan(expected.a - 1200);
+    expect(rateModels(1200, 800, 0.5).a).toBeLessThan(1200);
+  });
+
+  it("never drops a rating below the floor", () => {
+    expect(rateModels(100, 100, 0).a).toBe(100);
   });
 });

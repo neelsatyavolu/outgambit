@@ -46,6 +46,7 @@ export function harness(db: Db, replies: Reply[] = [], overrides: Partial<Deps> 
     adapterFor: async () => adapter,
     schedule: (job) => void jobs.push(job),
     findModel: async (provider, id) => [FAST, SLOW].find((m) => m.provider === provider && m.id === id) ?? null,
+    entrants: async () => [],
     random: () => 0,
     ...overrides,
   };

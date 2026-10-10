@@ -33,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Link>
             <nav>
               <span className="muted tagline">chess vs machines</span>
+              <Link href="/arena">Arena</Link>
               <Link href="/ratings">Ratings</Link>
               <Link href="/account">Account</Link>
               <Link href="/owner">Owner</Link>

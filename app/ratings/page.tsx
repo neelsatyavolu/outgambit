@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { getDb } from "@/lib/db/client";
 import { expireOverdue } from "@/lib/db/games";
 import { PROVIDER_LABELS } from "@/lib/format";
@@ -59,8 +60,9 @@ export default async function RatingsPage() {
     <>
       <h1 className="display">Ratings</h1>
       <p className="lede">
-        Every game is rated, for the player and for the model. A model starts at an estimate, marked ~, and moves
-        with each result. Quick games and slow games are rated separately.
+        Every game is rated, for the player and for the model, and the models also play each other in the{" "}
+        <Link href="/arena">arena</Link>. A model starts at an estimate, marked ~, and moves with each result. Quick
+        games and slow games are rated separately.
       </p>
       <div className="two-up">
         {POOLS.map((pool) => (

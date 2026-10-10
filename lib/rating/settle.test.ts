@@ -145,6 +145,60 @@ describe("settleRatings", () => {
   });
 });
 
+describe("arena games", () => {
+  // Jev (850 regular) with white against Liquid d1 (800 regular).
+  const arena = (overrides: Partial<Game> = {}): Game =>
+    makeGame({
+      playerId: "arena", provider: "gateway", model: "liquid/d1", modelLabel: "Liquid d1", effort: null,
+      rival: { provider: "jev", model: "jev-latest", modelLabel: "Jev", effort: null },
+      status: "finished", result: "white", reason: "checkmate", playerColor: "white", ...overrides,
+    });
+
+  it("moves both models by the result, with no player involved", async () => {
+    const game = arena();
+    await insertGame(db, game);
+    expect(await settleRatings(db)).toBe(1);
+    const jev = (await modelRating("jev/jev-latest", "regular"))!;
+    const liquid = (await modelRating("gateway/liquid/d1", "regular"))!;
+    expect([jev.rating, jev.games]).toEqual([857, 1]);
+    expect([liquid.rating, liquid.games]).toEqual([793, 1]);
+    expect(await getGame(db, game.id)).toMatchObject({
+      rated: true, rating: { playerBefore: 850, playerAfter: 857, aiBefore: 800, aiAfter: 793 },
+    });
+  });
+
+  it("credits black when black wins, and rates a draw toward the lower-rated model", async () => {
+    await insertGame(db, arena({ result: "black" }));
+    await settleRatings(db);
+    expect((await modelRating("jev/jev-latest", "regular"))!.rating).toBeLessThan(850);
+    expect((await modelRating("gateway/liquid/d1", "regular"))!.rating).toBeGreaterThan(800);
+    await resetDb(db);
+    await insertGame(db, arena({ result: "draw", reason: "repetition" }));
+    await settleRatings(db);
+    expect((await modelRating("jev/jev-latest", "regular"))!.rating).toBe(849);
+    expect((await modelRating("gateway/liquid/d1", "regular"))!.rating).toBe(801);
+  });
+
+  it("rates in the pool the game was played in, at each model's own effort", async () => {
+    const rival = { provider: "codex", model: "gpt-6-astra", modelLabel: "GPT-6 Astra", effort: "medium" } as const;
+    await insertGame(db, arena({ rival }));
+    await insertGame(db, arena({ timeControl: "3+0", createdAt: NOON + 1 }));
+    await settleRatings(db);
+    expect((await listModelRatings(db)).map((r) => [r.key, r.pool, r.games])).toEqual([
+      ["codex/gpt-6-astra#medium", "regular", 1],
+      ["gateway/liquid/d1", "bullet", 1],
+      ["gateway/liquid/d1", "regular", 1],
+      ["jev/jev-latest", "bullet", 1],
+    ]);
+  });
+
+  it("does not rate an arena game that was called off", async () => {
+    await insertGame(db, arena({ status: "aborted", result: null, reason: "provider_error" }));
+    expect(await settleRatings(db)).toBe(0);
+    expect(await listModelRatings(db)).toEqual([]);
+  });
+});
+
 describe("setSkill", () => {
   it("cannot be changed once the player has a rated game", async () => {
     const id = await player();

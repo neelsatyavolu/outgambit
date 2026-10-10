@@ -83,6 +83,27 @@ describe("headline", () => {
     });
   });
 
+  it("names both models in an arena game", () => {
+    const arena = { ...base, rival: { label: "Grok B", effort: null } };
+    expect(headline({ ...arena, result: "white", reason: "checkmate" }, true)?.title).toBe("Grok B won");
+    expect(headline({ ...arena, result: "black", reason: "timeout" }, true)).toEqual({
+      title: "GPT A won", detail: "Grok B ran out of time.",
+    });
+    expect(headline({ ...arena, result: "black", reason: "illegal_move" }, true)?.detail).toBe(
+      "Grok B could not produce a legal move and forfeited.",
+    );
+    expect(headline({ ...arena, result: "draw", reason: "move_limit" }, true)).toEqual({
+      title: "Draw", detail: "Neither model had won by the arena's move limit.",
+    });
+    expect(headline({ ...arena, status: "aborted", result: null, reason: "provider_error" }, true)?.detail).toBe(
+      "One of the models could not be reached. The game is not rated.",
+    );
+    expect(headline({ ...arena, status: "aborted", result: null, reason: "called_off" }, true)).toEqual({
+      title: "Game aborted",
+      detail: "The arena was switched off while this game was being played. The game is not rated.",
+    });
+  });
+
   it("returns null while the game is in progress", () => {
     expect(headline({ ...base, status: "active", result: null, reason: null }, false)).toBeNull();
   });

@@ -35,7 +35,9 @@ const REASON_LABELS: Record<Reason, string> = {
   timeout: "time",
   resignation: "resignation",
   illegal_move: "illegal move",
+  move_limit: "move limit",
   provider_error: "AI unavailable",
+  called_off: "called off",
 };
 
 export const reasonText = (reason: Reason): string => REASON_LABELS[reason];
@@ -48,10 +50,12 @@ export function outcomeText(game: Pick<GameView, "status" | "result" | "reason" 
   return `${verdict} · ${reasonText(game.reason)}`;
 }
 
-type Finished = Pick<GameView, "status" | "result" | "reason" | "playerColor" | "modelLabel">;
+type Finished = Pick<GameView, "status" | "result" | "reason" | "playerColor" | "modelLabel"> &
+  Partial<Pick<GameView, "rival">>;
 
 function detailFor(game: Finished, spectator: boolean): string {
-  const player = spectator ? "The player" : "You";
+  // In an arena game the player's side is a model too, and is named like one.
+  const player = game.rival ? game.rival.label : spectator ? "The player" : "You";
   const playerLost = game.result !== null && game.result !== "draw" && game.result !== game.playerColor;
   switch (game.reason) {
     case "checkmate":
@@ -69,8 +73,13 @@ function detailFor(game: Finished, spectator: boolean): string {
     case "resignation":
       return `${player} resigned.`;
     case "illegal_move":
-      return `${game.modelLabel} could not produce a legal move and forfeited.`;
+      return `${playerLost ? player : game.modelLabel} could not produce a legal move and forfeited.`;
+    case "move_limit":
+      return "Neither model had won by the arena's move limit.";
+    case "called_off":
+      return "The arena was switched off while this game was being played. The game is not rated.";
     case "provider_error":
+      if (game.rival) return "One of the models could not be reached. The game is not rated.";
       return spectator
         ? `${game.modelLabel} is unavailable. The game does not count toward the daily limits.`
         : `${game.modelLabel} is unavailable. This game does not count toward your daily limit.`;
@@ -83,6 +92,7 @@ function titleFor(game: Finished, spectator: boolean): string {
   if (game.status === "aborted") return "Game aborted";
   if (game.result === "draw" || game.result === null) return "Draw";
   const playerWon = game.result === game.playerColor;
+  if (game.rival) return `${playerWon ? game.rival.label : game.modelLabel} won`;
   if (spectator) return playerWon ? "The player won" : `${game.modelLabel} won`;
   return playerWon ? "You won" : "You lost";
 }

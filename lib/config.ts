@@ -29,6 +29,35 @@ export const MAX_INVALID_REPLIES = 3;
 /** Provider failures allowed before the game is aborted. */
 export const MAX_PROVIDER_FAILURES = 2;
 
+/**
+ * The arena: models playing each other with nobody watching, so the ratings
+ * rest on more than the games people happen to play. Every move is a call to
+ * a provider, so all of it is capped.
+ */
+export const ARENA = {
+  /** Games started per Pacific day unless the owner sets another number. Zero switches the arena off. */
+  gamesPerDay: 6,
+  /** The schedule starts one game an hour at most, so a day cannot hold more than this. */
+  maxGamesPerDay: 24,
+  /** The time control played in each pool. */
+  timeControls: { bullet: "3+0", regular: "10+10" },
+  /** The effort a model with effort levels plays at. */
+  effort: "medium",
+  /** A game still going after this many plies is called a draw, so two models cannot shuffle for ever. */
+  maxPlies: 200,
+  /**
+   * How long into a run a model may still be asked. The routes' maxDuration is
+   * 800 s; the rest is for a call that first has to refresh its credentials,
+   * and for handing the game to the next run.
+   */
+  runBudgetMs: 740_000,
+} as const;
+
+/** Providers that spend the owner's own subscription. Their models stay out of the arena until ticked. */
+const SUBSCRIPTION_PROVIDERS: readonly Provider[] = ["codex", "grok"];
+
+export const inArenaByDefault = (provider: Provider): boolean => !SUBSCRIPTION_PROVIDERS.includes(provider);
+
 export type TimeControl = { id: string; initialMs: number; incrementMs: number; fastOnly: boolean };
 
 const control = (minutes: number, incrementSeconds: number, fastOnly: boolean): TimeControl => ({

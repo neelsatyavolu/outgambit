@@ -4,7 +4,7 @@ import { isFreeModel } from "../ai/free-models";
 import { fakeEnabled } from "../ai/registry";
 import { JEV_MODEL } from "../ai/jev";
 import { OPENAI_DECISIONS_MODEL } from "../ai/openai-decisions";
-import { timeControlsFor } from "../config";
+import { inArenaByDefault, timeControlsFor } from "../config";
 import type { Queryable } from "../db/client";
 import { listConnections } from "../db/connections";
 import { listModelRows, type ModelRow } from "../db/models";
@@ -16,6 +16,8 @@ export type OwnerModel = {
   label: string;
   supportsEffort: boolean;
   enabled: boolean;
+  /** Whether it takes part in the arena, once it is offered. */
+  arena: boolean;
   connected: boolean;
   /** Added by hand in the owner panel, so it can be removed there. */
   custom: boolean;
@@ -46,7 +48,7 @@ const cachedCatalog: LoadCatalog = async () => {
   return cached;
 };
 
-type Known = Omit<OwnerModel, "enabled" | "connected"> & { enabledByDefault: boolean };
+type Known = Omit<OwnerModel, "enabled" | "arena" | "connected"> & { enabledByDefault: boolean };
 
 // Catalog models spend the owner's subscription, so they start switched off.
 async function knownModels(loadCatalog: LoadCatalog): Promise<Known[]> {
@@ -66,7 +68,8 @@ async function knownModels(loadCatalog: LoadCatalog): Promise<Known[]> {
     builtIn("openai", OPENAI_DECISIONS_MODEL, "GPT-6 Luna (Decisions)", false),
     builtIn("gateway", "liquid/d1", "Liquid d1", false),
     builtIn("gateway", "microsoft/microsoft-decision-1", "Microsoft Decision-1", false),
-    ...(fakeEnabled() ? [builtIn("fake", "fake-1", "Scripted", true)] : []),
+    // Two of them, so the arena has a pairing to make.
+    ...(fakeEnabled() ? [builtIn("fake", "fake-1", "Scripted", true), builtIn("fake", "fake-2", "Rehearsed", true)] : []),
   ];
 }
 
@@ -76,32 +79,43 @@ const sameModel = (row: ModelRow, provider: Provider, id: string): boolean =>
 export async function listForOwner(q: Queryable, loadCatalog: LoadCatalog = cachedCatalog): Promise<OwnerModel[]> {
   const [known, rows, connections] = await Promise.all([knownModels(loadCatalog), listModelRows(q), listConnections(q)]);
   const connected = new Set<Provider>([...connections.map((c) => c.provider), ...(fakeEnabled() ? ["fake" as const] : [])]);
-  const builtIn = known.map(({ enabledByDefault, ...model }) => ({
-    ...model,
-    enabled: rows.find((r) => sameModel(r, model.provider, model.id))?.enabled ?? enabledByDefault,
-    connected: connected.has(model.provider),
-  }));
+  const builtIn = known.map(({ enabledByDefault, ...model }) => {
+    const row = rows.find((r) => sameModel(r, model.provider, model.id));
+    return {
+      ...model,
+      enabled: row?.enabled ?? enabledByDefault,
+      arena: row?.arena ?? inArenaByDefault(model.provider),
+      connected: connected.has(model.provider),
+    };
+  });
   const custom = rows
     .filter((r) => CUSTOM_PROVIDERS.includes(r.provider))
     .map((r) => ({
       provider: r.provider, id: r.modelId, label: r.label, supportsEffort: r.supportsEffort,
-      enabled: r.enabled, connected: connected.has(r.provider), custom: true,
+      enabled: r.enabled, arena: r.arena ?? inArenaByDefault(r.provider), connected: connected.has(r.provider), custom: true,
     }));
   return [...builtIn, ...custom];
 }
 
+/** Whether visitors may pick this model right now. */
+export const isOffered = (m: OwnerModel): boolean => m.enabled && m.connected && isFreeModel(m.provider, m.id);
+
+const offer = (m: OwnerModel): OfferedModel => ({
+  provider: m.provider,
+  id: m.id,
+  label: m.label,
+  supportsEffort: m.supportsEffort,
+  timeControls: timeControlsFor(m.provider).map((t) => t.id),
+});
+
 /** The models a visitor may pick: enabled, with a connected provider, and free where that is required. */
 export async function listOffered(q: Queryable, loadCatalog: LoadCatalog = cachedCatalog): Promise<OfferedModel[]> {
-  const models = await listForOwner(q, loadCatalog);
-  return models
-    .filter((m) => m.enabled && m.connected && isFreeModel(m.provider, m.id))
-    .map((m) => ({
-      provider: m.provider,
-      id: m.id,
-      label: m.label,
-      supportsEffort: m.supportsEffort,
-      timeControls: timeControlsFor(m.provider).map((t) => t.id),
-    }));
+  return (await listForOwner(q, loadCatalog)).filter(isOffered).map(offer);
+}
+
+/** The offered models that also play each other in the arena. */
+export async function listEntrants(q: Queryable, loadCatalog: LoadCatalog = cachedCatalog): Promise<OfferedModel[]> {
+  return (await listForOwner(q, loadCatalog)).filter((m) => isOffered(m) && m.arena).map(offer);
 }
 
 export async function findOffered(
