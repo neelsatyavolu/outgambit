@@ -59,11 +59,11 @@ describe("chatAdapter", () => {
     });
   });
 
-  it("treats an empty or non-text reply as invalid", async () => {
-    for (const content of ["", null, [{ type: "text" }]]) {
+  it("treats an empty or non-text reply as a provider error, not as an illegal move", async () => {
+    for (const content of ["", "   ", null, [{ type: "text" }]]) {
       const { fetcher } = fakeFetch(() => reply(content));
       const result = await chatAdapter({ ...base, effortField: "reasoning", fetch: fetcher })(requestFor());
-      expect(result.kind).toBe("invalid");
+      expect(result).toEqual({ kind: "provider_error", message: "empty reply" });
     }
   });
 

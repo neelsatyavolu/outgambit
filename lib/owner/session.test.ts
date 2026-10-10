@@ -20,6 +20,16 @@ describe("owner session", () => {
     expect(isValidSession(sign("something-else"), NOW)).toBe(false);
   });
 
+  it("stops being valid when the owner password changes", () => {
+    const token = createSession(NOW, "the-old-password");
+    expect(isValidSession(token, NOW, "the-old-password")).toBe(true);
+    expect(isValidSession(token, NOW, "the-new-password")).toBe(false);
+  });
+
+  it("does not reveal the password in the token", () => {
+    expect(createSession(NOW, "the-old-password")).not.toContain("the-old-password");
+  });
+
   it("rejects no token", () => {
     expect(isValidSession(undefined, NOW)).toBe(false);
   });

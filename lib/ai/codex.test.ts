@@ -38,6 +38,11 @@ describe("codexAdapter", () => {
     expect(await codexAdapter(tokens, fetcher)(requestFor())).toEqual({ kind: "invalid", raw: "Ke2" });
   });
 
+  it("treats a stream with no text as a provider error", async () => {
+    const { fetcher } = fakeFetch(() => sse({ type: "response.completed" }));
+    expect(await codexAdapter(tokens, fetcher)(requestFor())).toEqual({ kind: "provider_error", message: "empty reply" });
+  });
+
   it("maps an error event in the stream to a provider error", async () => {
     const { fetcher } = fakeFetch(() => sse({ type: "error", error: { message: "usage limit reached" } }));
     expect(await codexAdapter(tokens, fetcher)(requestFor())).toEqual({ kind: "provider_error", message: "stream error" });

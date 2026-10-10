@@ -89,6 +89,15 @@ describe("createGame", () => {
     });
   });
 
+  it("does not let a game the player abandoned and lost on time block a new one", async () => {
+    const h = harness(db);
+    const first = await createGame(h.deps, input({ timeControl: "1+0" }));
+    h.clock.now += 61_000;
+    const second = await createGame(h.deps, input());
+    expect(second.ok).toBe(true);
+    expect(first.ok && (await getGame(db, first.game.id))).toMatchObject({ status: "finished", reason: "timeout" });
+  });
+
   it("allows two games a day per player and refuses the third", async () => {
     const h = harness(db);
     expect((await playOne(h)).ok).toBe(true);

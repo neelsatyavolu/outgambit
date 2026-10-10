@@ -41,7 +41,9 @@ function codeFrom(pasted: string, pending: Pending): { code: string } | { error:
   if (callback.error) return { error: "The provider refused the sign-in. Start again." };
   if (!callback.code || /\s/.test(callback.code)) return { error: GARBAGE };
   // Grok can show a bare code with no state; ChatGPT always redirects with one.
-  const bareCodeAllowed = pending.provider === "grok" && callback.state === null;
+  // Anything shaped like an address or query string must carry the state.
+  const addressLike = /:\/\/|(?:^|[?&])(?:code|state)=/.test(pasted.trim());
+  const bareCodeAllowed = pending.provider === "grok" && callback.state === null && !addressLike;
   if (!bareCodeAllowed && callback.state !== pending.state) {
     return { error: "That callback belongs to a different sign-in attempt. Start again." };
   }

@@ -18,7 +18,9 @@ async function keepAlive(deps: Deps, game: Game, now: number): Promise<Game> {
   const mover = turnAt(game.ply);
   if (remainingMs(game, mover, now) <= 0) {
     const ending = { status: "finished", result: opposite(mover), reason: "timeout" } as const;
-    await finishGame(deps.db, game.id, ending, mover === "white" ? { whiteMs: 0 } : { blackMs: 0 });
+    const flagged = mover === "white" ? { whiteMs: 0 } : { blackMs: 0 };
+    // Guarded by ply: a move may have been committed since this poll read the game.
+    await finishGame(deps.db, game.id, ending, { expectedPly: game.ply, ...flagged });
     return (await getGame(deps.db, game.id)) ?? game;
   }
   const aiToMove = mover !== game.playerColor;

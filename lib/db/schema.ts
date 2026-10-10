@@ -55,9 +55,12 @@ const STATEMENTS = [
     window_start timestamptz NOT NULL,
     count integer NOT NULL
   )`,
+  // Later additions go here as idempotent ALTERs, so existing databases catch up.
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_invalid integer NOT NULL DEFAULT 0`,
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_failures integer NOT NULL DEFAULT 0`,
 ];
 
-/** Creates any missing tables. Safe to run on every start. */
+/** Creates any missing tables and columns. Safe to run on every start. */
 export async function migrate(db: Queryable): Promise<void> {
   for (const statement of STATEMENTS) await db.query(statement);
 }

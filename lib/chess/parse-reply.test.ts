@@ -82,6 +82,31 @@ describe("parseReply", () => {
     expect(parse("Bxc3", legal)).toBe("Bxc3");
   });
 
+  it("reads a piece named in words, not as the pawn move to that square", () => {
+    expect(parse("I'll develop my knight to f3.")).toBe("Nf3");
+    expect(parse("Knight f3")).toBe("Nf3");
+    expect(parse("pawn to e4")).toBe("e4");
+  });
+
+  it("rejects a piece named in words that cannot go there", () => {
+    expect(parse("bishop to f3")).toBeNull();
+  });
+
+  it("reads figurine notation", () => {
+    expect(parse("♘f3")).toBe("Nf3");
+    expect(parse("♞f6", afterE4)).toBe("Nf6");
+  });
+
+  it("reads a move wrapped in JSON or after a label", () => {
+    expect(parse('{"move":"e4"}')).toBe("e4");
+    expect(parse("Move:e4")).toBe("e4");
+  });
+
+  it("reads a long move with an equals sign before the promotion piece", () => {
+    const legal = replay(["a4", "b5", "axb5", "a6", "bxa6", "Bb7", "axb7", "Nc6"]).legal;
+    expect(parse("b7a8=Q", legal)).toBe("bxa8=Q");
+  });
+
   it("falls back to ignoring case when nothing else matches", () => {
     expect(parse("nf3")).toBe("Nf3");
     expect(parse("E4")).toBe("e4");

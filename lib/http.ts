@@ -40,8 +40,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const isPlayerId = (value: string | undefined): value is string => value !== undefined && UUID.test(value);
 
-/** The request's JSON body, validated. Null when it is missing, malformed or the wrong shape. */
+/**
+ * The request's JSON body, validated. Null when it is missing, malformed,
+ * the wrong shape, or not declared as JSON (which a plain HTML form cannot do).
+ */
 export async function readBody<S extends z.ZodType>(request: Request, schema: S): Promise<z.infer<S> | null> {
+  if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) return null;
   try {
     const parsed = schema.safeParse(await request.json());
     return parsed.success ? parsed.data : null;

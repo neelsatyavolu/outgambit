@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db/client";
-import { listGames } from "@/lib/db/games";
+import { expireOverdue, listGames } from "@/lib/db/games";
 import { ok } from "@/lib/http";
 import { refuseUnlessOwner } from "@/lib/server/context";
 
@@ -8,7 +8,9 @@ const SHOWN = 100;
 export async function GET(request: Request) {
   const refusal = await refuseUnlessOwner(request);
   if (refusal) return refusal;
-  const games = await listGames(await getDb(), SHOWN);
+  const db = await getDb();
+  await expireOverdue(db, Date.now());
+  const games = await listGames(db, SHOWN);
   return ok(
     games.map((g) => ({
       id: g.id,

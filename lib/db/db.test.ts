@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "@/test/db";
 import { makeGame, NOON } from "@/test/factory";
-import { createPgliteDb, type Db } from "./client";
+import { createPgliteDb, createPostgresDb, type Db } from "./client";
 import { deleteConnection, getConnection, listConnections, putConnection } from "./connections";
 import {
-  activeGameFor, claimLease, commitMove, countForDay, finishGame, getGame, insertGame, listGames, listMoves, renewLease,
+  activeGameFor, claimLease, commitMove, countForDay, expireOverdue, finishGame, getGame, insertGame, listGames,
+  listMoves, recordAttempt, renewLease,
 } from "./games";
 import { deleteModel, listModelRows, upsertModel } from "./models";
 import { hitRateLimit } from "./rate-limit";
@@ -36,6 +37,18 @@ describe("createPgliteDb", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe.skipIf(!process.env.TEST_DATABASE_URL)("createPostgresDb", () => {
+  it("survives the server dropping its idle connections", async () => {
+    const url = process.env.TEST_DATABASE_URL!;
+    const victim = await createPostgresDb(`${url}?application_name=gambit_idle_test`);
+    await victim.query("SELECT 1");
+    await db.query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'gambit_idle_test'");
+    // An unhandled pool error would surface here as an uncaught exception and fail the run.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await victim.query("SELECT 2 AS two")).toEqual([{ two: 2 }]);
   });
 });
 
@@ -125,12 +138,48 @@ describe("games", () => {
     expect(await claimLease(db, game.id, 2, NOON, NOON + 60_000)).toBe(false);
   });
 
-  it("renews a held lease", async () => {
+  it("renews a lease only for the caller that holds it", async () => {
     const game = makeGame();
     await insertGame(db, game);
     await claimLease(db, game.id, 0, NOON, NOON + 60_000);
-    await renewLease(db, game.id, 0, NOON + 200_000);
+    expect(await renewLease(db, game.id, 0, NOON + 60_000, NOON + 200_000)).toBe(true);
     expect((await getGame(db, game.id))?.aiLeaseUntil).toBe(NOON + 200_000);
+    expect(await renewLease(db, game.id, 0, NOON + 60_000, NOON + 300_000)).toBe(false);
+    expect((await getGame(db, game.id))?.aiLeaseUntil).toBe(NOON + 200_000);
+  });
+
+  it("does not finish a game that has moved past the ply the caller saw", async () => {
+    const game = makeGame({ ply: 2 });
+    await insertGame(db, game);
+    const end = { status: "aborted", result: null, reason: "provider_error" } as const;
+    expect(await finishGame(db, game.id, end, { expectedPly: 1 })).toBe(false);
+    expect((await getGame(db, game.id))?.status).toBe("active");
+    expect(await finishGame(db, game.id, end, { expectedPly: 2 })).toBe(true);
+  });
+
+  it("counts failed attempts for the lease holder and clears them when a move is played", async () => {
+    const game = makeGame();
+    await insertGame(db, game);
+    await claimLease(db, game.id, 0, NOON, NOON + 60_000);
+    expect(await recordAttempt(db, game.id, 0, NOON + 60_000, "invalid")).toEqual({ invalid: 1, failures: 0 });
+    expect(await recordAttempt(db, game.id, 0, NOON + 60_000, "provider_error")).toEqual({ invalid: 1, failures: 1 });
+    expect(await recordAttempt(db, game.id, 0, NOON + 99_000, "invalid")).toBeNull();
+    await commitMove(db, { gameId: game.id, expectedPly: 0, move: E4, whiteMs: 1, blackMs: 1, now: NOON });
+    await claimLease(db, game.id, 1, NOON, NOON + 60_000);
+    expect(await recordAttempt(db, game.id, 1, NOON + 60_000, "invalid")).toEqual({ invalid: 1, failures: 0 });
+  });
+
+  it("ends games whose mover ran out of time while nobody was watching", async () => {
+    const playerLate = makeGame({ whiteMs: 60_000 });
+    const aiLate = makeGame({ ply: 1, blackMs: 30_000, playerId: "p2" });
+    const inTime = makeGame({ whiteMs: 600_000, playerId: "p3" });
+    const done = makeGame({ status: "finished", result: "draw", reason: "stalemate", whiteMs: 1, playerId: "p4" });
+    for (const g of [playerLate, aiLate, inTime, done]) await insertGame(db, g);
+    expect(await expireOverdue(db, NOON + 60_000)).toBe(2);
+    expect(await getGame(db, playerLate.id)).toMatchObject({ status: "finished", result: "black", reason: "timeout", whiteMs: 0 });
+    expect(await getGame(db, aiLate.id)).toMatchObject({ status: "finished", result: "white", reason: "timeout", blackMs: 0 });
+    expect((await getGame(db, inTime.id))?.status).toBe("active");
+    expect(await getGame(db, done.id)).toMatchObject({ result: "draw", whiteMs: 1 });
   });
 
   it("counts a day's games by player, network and overall, ignoring aborted ones", async () => {

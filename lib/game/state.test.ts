@@ -3,7 +3,7 @@ import { resetDb, testDb } from "@/test/db";
 import { NOON } from "@/test/factory";
 import { harness, input } from "@/test/game";
 import type { Db } from "../db/client";
-import { getGame } from "../db/games";
+import { claimLease, getGame } from "../db/games";
 import { createGame } from "./create";
 import { playerMove } from "./move";
 import { getGameView } from "./state";
@@ -106,6 +106,8 @@ describe("getGameView", () => {
     const { h, id } = await slowGame();
     await playerMove(h.deps, id, "player-1", "e2e4", 0);
     h.jobs.length = 0;
+    await claimLease(db, id, 1, NOON, NOON + 30_000); // a runner took the turn, then died
+    h.clock.now = NOON + 30_000;
     await Promise.all([getGameView(h.deps, id, player), getGameView(h.deps, id, owner)]);
     await Promise.all(h.jobs.splice(0).map((job) => job()));
     expect(h.requests).toHaveLength(1);

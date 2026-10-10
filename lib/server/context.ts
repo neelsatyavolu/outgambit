@@ -20,7 +20,7 @@ export async function buildDeps(): Promise<Deps> {
   return {
     db,
     now: Date.now,
-    adapterFor: (game) => getAdapter(db, game.provider, Date.now()),
+    adapterFor: (game, options) => getAdapter(db, game.provider, Date.now(), fetch, options),
     schedule: (job) =>
       after(async () => {
         try {

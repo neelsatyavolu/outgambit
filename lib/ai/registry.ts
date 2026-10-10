@@ -24,9 +24,10 @@ export async function getAdapter(
   provider: Provider,
   now: number,
   fetcher: typeof fetch = fetch,
+  options: { refresh?: boolean } = {},
 ): Promise<Adapter | null> {
   if (provider === "fake") return fakeEnabled() ? fakeAdapter(fakeScript()) : null;
-  const secret = await getCredentials(db, provider, now);
+  const secret = await getCredentials(db, provider, now, undefined, { force: options.refresh });
   if (!secret) return null;
   if (secret.kind === "oauth") {
     if (provider === "codex") return codexAdapter(secret.tokens, fetcher);

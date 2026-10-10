@@ -6,7 +6,8 @@ import { Chessboard } from "react-chessboard";
 import type { Color } from "@/lib/game/types";
 
 type Target = { to: string; promotion: boolean };
-type Pending = { from: string; to: string };
+/** A promotion waiting for its piece. It belongs to one position and lapses when the board changes. */
+type Pending = { from: string; to: string; fen: string };
 
 const PROMOTIONS = [
   { piece: "q", label: "Queen" },
@@ -49,7 +50,8 @@ export function Board(props: {
 }) {
   const { fen, interactive, lastMove, onMove } = props;
   const [selected, setSelected] = useState<string | null>(null);
-  const [pending, setPending] = useState<Pending | null>(null);
+  const [chosen, setPending] = useState<Pending | null>(null);
+  const pending = chosen?.fen === fen ? chosen : null;
   const position = useMemo(() => analyse(fen), [fen]);
   const from = interactive ? selected : null;
   const reachable = from ? (position.targets.get(from) ?? []) : [];
@@ -59,8 +61,9 @@ export function Board(props: {
     const target = interactive ? position.targets.get(source)?.find((t) => t.to === to) : undefined;
     if (!target) return false;
     setSelected(null);
+    setPending(null);
     if (target.promotion) {
-      setPending({ from: source, to });
+      setPending({ from: source, to, fen });
       return false;
     }
     onMove(`${source}${to}`);

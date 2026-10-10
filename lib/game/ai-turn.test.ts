@@ -8,6 +8,7 @@ import { callTimeoutMs, runAiTurn } from "./ai-turn";
 import { createGame } from "./create";
 import { capacity } from "./limits";
 import { playerMove } from "./move";
+import { getGameView } from "./state";
 
 let db: Db;
 beforeAll(async () => {
@@ -110,8 +111,98 @@ describe("runAiTurn", () => {
   });
 
   it("caps one call at 240 seconds, or at the time left when that is less", () => {
-    expect(callTimeoutMs(600_000)).toBe(240_000);
-    expect(callTimeoutMs(45_000)).toBe(45_000);
+    expect(callTimeoutMs(600_000, "codex")).toBe(240_000);
+    expect(callTimeoutMs(45_000, "codex")).toBe(45_000);
+  });
+
+  it("caps a fast opponent's call at ten seconds", () => {
+    expect(callTimeoutMs(600_000, "jev")).toBe(10_000);
+    expect(callTimeoutMs(4_000, "jev")).toBe(4_000);
+  });
+
+  it("hands a turn over when another full call would not fit in one job, then aborts on the next failure", async () => {
+    const hang: Reply = (_request, clock) => {
+      clock.now += 240_000;
+      return { kind: "provider_error", message: "TimeoutError" };
+    };
+    const { h, id } = await afterE4([hang]);
+    await h.runJobs();
+    // One call used most of the job; the game waits for a new runner instead of being cut off mid-call.
+    expect(h.requests).toHaveLength(1);
+    const waiting = await getGame(db, id);
+    expect(waiting).toMatchObject({ status: "active", ply: 1 });
+    expect(waiting!.aiLeaseUntil).toBeLessThanOrEqual(h.clock.now);
+
+    await getGameView(h.deps, id, { owner: true });
+    await h.runJobs();
+    expect(h.requests).toHaveLength(2);
+    expect(await getGame(db, id)).toMatchObject({ status: "aborted", reason: "provider_error" });
+  });
+
+  it("makes a second call in the same job when the first failed quickly", async () => {
+    const { h, id } = await afterE4([failure, "e5"]);
+    await h.runJobs();
+    expect(h.requests).toHaveLength(2);
+    expect((await getGame(db, id))?.ply).toBe(2);
+  });
+
+  it("stops a runner that lost its lease, so it cannot end a game that has moved on", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const stuck: Reply = async () => (await gate, failure);
+    const { h, id } = await afterE4([stuck, "e5", failure, failure]);
+    const first = h.runJobs();
+    while (h.requests.length === 0) await new Promise((r) => setTimeout(r, 5));
+    h.clock.now += 400_000; // the first runner's lease has expired
+    await getGameView(h.deps, id, { owner: true });
+    await h.jobs.shift()!(); // a second runner plays e5
+    expect((await getGame(db, id))?.ply).toBe(2);
+    release();
+    await first;
+    expect(await getGame(db, id)).toMatchObject({ status: "active", ply: 2 });
+    expect(h.requests).toHaveLength(2);
+  });
+
+  it("holds the lease long enough for a token refresh plus a full call", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const { h, id } = await afterE4([async () => (await gate, { kind: "move", san: "e5" })]);
+    const running = h.runJobs();
+    while (h.requests.length === 0) await new Promise((r) => setTimeout(r, 5));
+    expect((await getGame(db, id))!.aiLeaseUntil! - h.clock.now).toBeGreaterThanOrEqual(240_000 + 20_000);
+    release();
+    await running;
+  });
+
+  it("starts each AI turn with a clean count of illegal replies", async () => {
+    const { h, id } = await afterE4([invalid("a"), invalid("b"), "e5", invalid("c"), invalid("d"), "d5"]);
+    await h.runJobs();
+    await playerMove(h.deps, id, "player-1", "g1f3", 2);
+    await h.runJobs();
+    expect(await getGame(db, id)).toMatchObject({ status: "active", ply: 4 });
+  });
+
+  it("asks for fresh credentials before retrying after the provider rejects them", async () => {
+    const refreshes: boolean[] = [];
+    const rejected = { kind: "provider_error", message: "HTTP 401" } as const;
+    const replies: Reply[] = [rejected, "e5"];
+    let calls = 0;
+    const h = harness(db, [], {
+      adapterFor: async (_game, options) => {
+        refreshes.push(Boolean(options?.refresh));
+        return async (request) => {
+          const reply = replies[calls++];
+          return typeof reply === "string" ? { kind: "move", san: reply } : (reply as typeof rejected);
+          void request;
+        };
+      },
+    });
+    const created = await createGame(h.deps, input({ provider: "codex", model: "gpt-a", effort: "low" }));
+    const id = created.ok ? created.game.id : "";
+    await playerMove(h.deps, id, "player-1", "e2e4", 0);
+    await h.runJobs();
+    expect(refreshes).toEqual([false, true]);
+    expect((await getGame(db, id))?.ply).toBe(2);
   });
 
   it("runs once when two callers start the same turn together", async () => {

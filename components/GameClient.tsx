@@ -4,6 +4,7 @@ import { Chess } from "chess.js";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/client/api";
+import { isStale, shownFen } from "@/lib/client/sync";
 import { capturedPieces, headline } from "@/lib/format";
 import { opposite, type Color, type GameView } from "@/lib/game/types";
 import { Board } from "./Board";
@@ -36,7 +37,11 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
   const [now, setNow] = useState(() => Date.now());
   const sending = useRef(false);
 
-  const accept = useCallback((view: GameView) => setSynced({ view, at: Date.now() }), []);
+  // Answers can arrive out of order, so one that is behind the board is dropped.
+  const accept = useCallback(
+    (view: GameView) => setSynced((current) => (isStale(current?.view ?? null, view) ? current : { view, at: Date.now() })),
+    [],
+  );
 
   // Bumping this refetches the game straight away.
   const [refetch, setRefetch] = useState(0);
@@ -84,7 +89,7 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
   if (!synced) return <p className="muted section">Loading…</p>;
 
   const { view } = synced;
-  const live = shown === null || shown === view.moves.length;
+  const live = shown === null || shown >= view.moves.length;
   const myTurn = !spectator && active && view.turn === view.playerColor;
 
   async function play(uci: string) {
@@ -115,13 +120,9 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
     refresh();
   }
 
-  const fen = !live
-    ? shown === 0 ? START_FEN : view.moves[shown! - 1].fenAfter
-    : (optimistic?.fen ?? view.fen);
-  const lastMove = !live
-    ? lastMoveOf(view.moves[shown! - 1]?.uci)
-    : (optimistic ?? lastMoveOf(view.moves.at(-1)?.uci));
-  const count = shown ?? view.moves.length;
+  const count = live ? view.moves.length : shown;
+  const fen = live ? (optimistic?.fen ?? view.fen) : shownFen(view, count, START_FEN);
+  const lastMove = live ? (optimistic ?? lastMoveOf(view.moves.at(-1)?.uci)) : lastMoveOf(view.moves[count - 1]?.uci);
   const ai = opposite(view.playerColor);
   const lost = capturedPieces(view.fen);
   const end = headline(view, spectator);

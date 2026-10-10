@@ -7,6 +7,15 @@ export const DAY_TIME_ZONE = "America/Los_Angeles";
 /** One LLM call may not outlast this, whatever the clock says. */
 export const LLM_CALL_TIMEOUT_MS = 240_000;
 export const JEV_TIMEOUT_MS = 3_000;
+/** The longest a turn by a fast opponent may hold its lease per call. */
+export const FAST_CALL_TIMEOUT_MS = 10_000;
+/** Time a slow opponent's call may spend fetching or refreshing credentials first. */
+export const CREDENTIAL_ALLOWANCE_MS = 25_000;
+/**
+ * How long one background job may work on a turn. It must stay under the
+ * routes' maxDuration (300 s), and leave room for one full call.
+ */
+export const AI_JOB_BUDGET_MS = 270_000;
 /** Extra time a lease outlives its call, so a slow commit is not mistaken for a dead turn. */
 export const LEASE_MARGIN_MS = 15_000;
 /** Illegal replies allowed before the AI forfeits. */

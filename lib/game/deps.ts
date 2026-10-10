@@ -7,8 +7,11 @@ import type { Game, Provider } from "./types";
 export type Deps = {
   db: Db;
   now: () => number;
-  /** The opponent for a game, or null when its provider is no longer connected. */
-  adapterFor: (game: Game) => Promise<Adapter | null>;
+  /**
+   * The opponent for a game, or null when its provider is no longer connected.
+   * `refresh` asks for new credentials first, after the provider rejected the old ones.
+   */
+  adapterFor: (game: Game, options?: { refresh?: boolean }) => Promise<Adapter | null>;
   /** Runs a job after the current request has been answered. */
   schedule: (job: () => Promise<void>) => void;
   findModel: (provider: Provider, id: string) => Promise<OfferedModel | null>;

@@ -113,7 +113,7 @@ export function commitMove(db: Db, c: MoveCommit): Promise<boolean> {
   return db.transaction(async (tx) => {
     const updated = await tx.query(
       `UPDATE games SET fen = $3, ply = ply + 1, white_ms = $4, black_ms = $5, turn_started_at = $6,
-              ai_lease_until = NULL, status = $7, result = $8, reason = $9
+              ai_lease_until = NULL, ai_invalid = 0, ai_failures = 0, status = $7, result = $8, reason = $9
         WHERE id = $1 AND ply = $2 AND status = 'active' RETURNING id`,
       [
         c.gameId, c.expectedPly, c.move.fenAfter, c.whiteMs, c.blackMs, toTs(c.now),
@@ -129,20 +129,44 @@ export function commitMove(db: Db, c: MoveCommit): Promise<boolean> {
   });
 }
 
-/** Ends an active game without a move. False if it had already ended. */
-export async function finishGame(
-  q: Queryable,
-  id: string,
-  ending: Ending,
-  clocks: { whiteMs?: number; blackMs?: number } = {},
-): Promise<boolean> {
+export type FinishGuard = {
+  /** Refuse if the game is no longer at this ply. Everything but a resignation passes it. */
+  expectedPly?: number;
+  whiteMs?: number;
+  blackMs?: number;
+};
+
+/** Ends an active game without a move. False if it had already ended or moved on. */
+export async function finishGame(q: Queryable, id: string, ending: Ending, guard: FinishGuard = {}): Promise<boolean> {
   const rows = await q.query(
     `UPDATE games SET status = $2, result = $3, reason = $4, ai_lease_until = NULL,
             white_ms = COALESCE($5, white_ms), black_ms = COALESCE($6, black_ms)
-      WHERE id = $1 AND status = 'active' RETURNING id`,
-    [id, ending.status, ending.result, ending.reason, clocks.whiteMs ?? null, clocks.blackMs ?? null],
+      WHERE id = $1 AND status = 'active' AND ($7::int IS NULL OR ply = $7) RETURNING id`,
+    [
+      id, ending.status, ending.result, ending.reason, guard.whiteMs ?? null, guard.blackMs ?? null,
+      guard.expectedPly ?? null,
+    ],
   );
   return rows.length > 0;
+}
+
+/**
+ * Ends every active game whose side to move has run out of time. Polling
+ * only reaches games someone is looking at; this reaches the abandoned ones.
+ */
+export async function expireOverdue(q: Queryable, now: number): Promise<number> {
+  const rows = await q.query(
+    `UPDATE games SET status = 'finished', reason = 'timeout', ai_lease_until = NULL,
+            result = CASE WHEN ply % 2 = 0 THEN 'black' ELSE 'white' END,
+            white_ms = CASE WHEN ply % 2 = 0 THEN 0 ELSE white_ms END,
+            black_ms = CASE WHEN ply % 2 = 1 THEN 0 ELSE black_ms END
+      WHERE status = 'active'
+        AND turn_started_at + (CASE WHEN ply % 2 = 0 THEN white_ms ELSE black_ms END) * interval '1 millisecond'
+            <= $1::timestamptz
+      RETURNING id`,
+    [toTs(now)],
+  );
+  return rows.length;
 }
 
 /** Takes the right to run the AI's turn at `ply`. Only one caller wins. */
@@ -156,8 +180,34 @@ export async function claimLease(q: Queryable, id: string, ply: number, now: num
   return rows.length > 0;
 }
 
-export async function renewLease(q: Queryable, id: string, ply: number, until: number): Promise<void> {
-  await q.query("UPDATE games SET ai_lease_until = $3 WHERE id = $1 AND ply = $2 AND status = 'active'", [
-    id, ply, toTs(until),
+const HELD = "id = $1 AND ply = $2 AND status = 'active' AND ai_lease_until = $3::timestamptz";
+
+/** Moves a lease's end. False if the caller no longer holds it. */
+export async function renewLease(q: Queryable, id: string, ply: number, held: number, until: number): Promise<boolean> {
+  const rows = await q.query(`UPDATE games SET ai_lease_until = $4 WHERE ${HELD} RETURNING id`, [
+    id, ply, toTs(held), toTs(until),
   ]);
+  return rows.length > 0;
+}
+
+export type AttemptCounts = { invalid: number; failures: number };
+
+/**
+ * Counts one failed attempt at the AI's current turn. The counts live in the
+ * database so they survive a hand-over between runners. Null if the caller
+ * no longer holds the lease.
+ */
+export async function recordAttempt(
+  q: Queryable,
+  id: string,
+  ply: number,
+  held: number,
+  kind: "invalid" | "provider_error",
+): Promise<AttemptCounts | null> {
+  const column = kind === "invalid" ? "ai_invalid" : "ai_failures";
+  const rows = await q.query<{ ai_invalid: number; ai_failures: number }>(
+    `UPDATE games SET ${column} = ${column} + 1 WHERE ${HELD} RETURNING ai_invalid, ai_failures`,
+    [id, ply, toTs(held)],
+  );
+  return rows[0] ? { invalid: rows[0].ai_invalid, failures: rows[0].ai_failures } : null;
 }

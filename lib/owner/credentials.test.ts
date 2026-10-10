@@ -46,6 +46,18 @@ describe("getCredentials", () => {
     expect(readSecret((await getConnection(db, "codex"))!.secret)).toEqual({ kind: "oauth", tokens: rotated });
   });
 
+  it("refreshes on demand even when the tokens have not expired", async () => {
+    await saveSecret(db, "codex", { kind: "oauth", tokens: fresh }, NOW);
+    const rotated = { accessToken: "at-9", refreshToken: "rt-9", expiresAt: NOW + 3_600_000 };
+    const refresh: Refresh = async () => rotated;
+    expect(await getCredentials(db, "codex", NOW, refresh, { force: true })).toEqual({ kind: "oauth", tokens: rotated });
+  });
+
+  it("does not try to refresh an API key on demand", async () => {
+    await saveSecret(db, "gemini", { kind: "key", apiKey: "g-key" }, NOW);
+    expect(await getCredentials(db, "gemini", NOW, neverRefresh, { force: true })).toEqual({ kind: "key", apiKey: "g-key" });
+  });
+
   it("refreshes once when two games ask at the same moment", async () => {
     await saveSecret(db, "grok", { kind: "oauth", tokens: stale }, NOW);
     let refreshes = 0;

@@ -34,8 +34,14 @@ export async function createPostgresDb(url: string, schema?: string): Promise<Db
   const pool = new Pool({
     connectionString: url,
     max: 5,
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis: 30_000,
     ...(schema ? { options: `-c search_path=${schema}` } : {}),
   });
+  // A hosted database drops idle connections. Without a listener that is an
+  // uncaught exception, which would take down the instance and any AI turn
+  // running in it. The pool replaces the connection on the next query.
+  pool.on("error", (error) => console.error("[gambit] idle database connection lost:", error.message));
   return {
     query: async <T>(sql: string, params: unknown[] = []) => (await pool.query(sql, params)).rows as T[],
     transaction: async <T>(fn: (tx: Queryable) => Promise<T>) => {

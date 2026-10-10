@@ -52,6 +52,15 @@ describe("finishOAuth", () => {
     expect(await finishOAuth(db, "grok", "  bare-code-123  ", pending, NOW, okExchange)).toEqual({ ok: true });
   });
 
+  it("rejects a Grok callback address whose state was removed", async () => {
+    const { pending } = startOAuth("grok", NOW);
+    for (const pasted of ["http://127.0.0.1:56121/callback?code=abc", "?code=abc", "code=abc"]) {
+      const result = await finishOAuth(db, "grok", pasted, pending, NOW, okExchange);
+      expect(result).toEqual({ ok: false, error: "That callback belongs to a different sign-in attempt. Start again." });
+    }
+    expect(await getConnection(db, "grok")).toBeNull();
+  });
+
   it("rejects a callback with the wrong state and stores nothing", async () => {
     const { pending } = startOAuth("codex", NOW);
     const result = await finishOAuth(db, "codex", "http://localhost:1455/auth/callback?code=abc&state=evil", pending, NOW, okExchange);

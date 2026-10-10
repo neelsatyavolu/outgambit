@@ -71,10 +71,12 @@ describe("isPlayerId", () => {
 
 describe("readBody", () => {
   const schema = z.object({ ply: z.number().int() });
-  const withBody = (body: string) => new Request("https://gambit.test/x", { method: "POST", body });
+  const withBody = (body: string, type = "application/json") =>
+    new Request("https://gambit.test/x", { method: "POST", body, headers: { "content-type": type } });
 
   it("returns the validated body", async () => {
     expect(await readBody(withBody('{"ply":3,"extra":true}'), schema)).toEqual({ ply: 3 });
+    expect(await readBody(withBody('{"ply":3}', "application/json; charset=utf-8"), schema)).toEqual({ ply: 3 });
   });
 
   it("returns null for a body that fails validation", async () => {
@@ -84,5 +86,9 @@ describe("readBody", () => {
   it("returns null for a body that is not JSON, or is missing", async () => {
     expect(await readBody(withBody("ply=3"), schema)).toBeNull();
     expect(await readBody(new Request("https://gambit.test/x", { method: "POST" }), schema)).toBeNull();
+  });
+
+  it("refuses JSON that was not sent as JSON, which a cross-site form could do", async () => {
+    expect(await readBody(withBody('{"ply":3}', "text/plain"), schema)).toBeNull();
   });
 });

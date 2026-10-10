@@ -24,24 +24,28 @@ const isFresh = (secret: Secret, now: number): boolean =>
 /**
  * The stored credentials for a provider, or null if it is not connected.
  * OAuth tokens near expiry are refreshed while holding the row lock, so two
- * games cannot spend the same refresh token.
+ * games cannot spend the same refresh token. `force` refreshes regardless,
+ * for when the provider has rejected tokens that had not expired.
  */
 export async function getCredentials(
   db: Db,
   provider: Provider,
   now: number,
   refresh: Refresh = refreshTokens,
+  options: { force?: boolean } = {},
 ): Promise<Secret | null> {
   const stored = await getConnection(db, provider);
   if (!stored) return null;
   const secret = readSecret(stored.secret);
-  if (isFresh(secret, now)) return secret;
+  if (secret.kind === "key" || (isFresh(secret, now) && !options.force)) return secret;
 
   return db.transaction(async (tx) => {
     const locked = await getConnection(tx, provider, true);
     if (!locked) return null;
     const current = readSecret(locked.secret);
-    if (current.kind === "key" || isFresh(current, now)) return current;
+    // Someone else may have refreshed while this caller waited for the lock.
+    const refreshedMeanwhile = current.kind === "oauth" && current.tokens.accessToken !== secret.tokens.accessToken;
+    if (current.kind === "key" || refreshedMeanwhile || (isFresh(current, now) && !options.force)) return current;
     const tokens = await refresh(provider as OAuthProvider, current.tokens.refreshToken, { previous: current.tokens });
     const next: Secret = { kind: "oauth", tokens };
     await saveSecret(tx, provider, next, now);

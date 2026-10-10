@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { replay } from "../chess/rules";
 import { findTimeControl } from "../config";
-import { activeGameFor, insertGame } from "../db/games";
+import { activeGameFor, expireOverdue, insertGame } from "../db/games";
 import type { OfferedModel } from "../owner/catalog";
 import { startAiTurn } from "./ai-turn";
 import type { Deps } from "./deps";
@@ -72,6 +72,8 @@ export async function createGame(deps: Deps, input: CreateInput): Promise<Create
 
   const refusal = await deps.db.transaction<CreateResult | null>(async (tx) => {
     await tx.query(`SELECT pg_advisory_xact_lock(${CREATE_LOCK})`);
+    // A game the player walked away from and lost on time must not block them.
+    await expireOverdue(tx, now);
     const active = await activeGameFor(tx, input.playerId);
     if (active) return { ok: false, error: "active_game", activeGameId: active.id };
     const { blocked } = await capacity(tx, input.playerId, input.ipHash, now);

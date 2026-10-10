@@ -32,7 +32,7 @@ export async function playerMove(
   const charge = chargeMove(isWhite ? game.whiteMs : game.blackMs, game.turnStartedAt, now, game.incrementMs);
   if (charge.flagged) {
     const ending = { status: "finished", result: opposite(game.playerColor), reason: "timeout" } as const;
-    await finishGame(deps.db, game.id, ending, isWhite ? { whiteMs: 0 } : { blackMs: 0 });
+    await finishGame(deps.db, game.id, ending, { expectedPly: game.ply, ...(isWhite ? { whiteMs: 0 } : { blackMs: 0 }) });
     return refuse("out_of_time");
   }
 
