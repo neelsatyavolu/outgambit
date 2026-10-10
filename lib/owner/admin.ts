@@ -1,6 +1,8 @@
 import "server-only";
 import { GEMINI_FREE_MODELS, freeModelRule, isFreeModel, openRouterFreeModels, type FreeModel } from "../ai/free-models";
+import { GATEWAY_CREDITS_URL } from "../ai/gateway";
 import { testJevKey } from "../ai/jev";
+import { testOpenAiKey } from "../ai/openai-decisions";
 import type { Db, Queryable } from "../db/client";
 import { listConnections } from "../db/connections";
 import { deleteModel, listModelRows, upsertModel } from "../db/models";
@@ -23,6 +25,8 @@ export const CONNECTABLE: ReadonlyArray<{ provider: Provider; label: string; kin
   { provider: "gemini", label: "Gemini", kind: "key" },
   { provider: "openrouter", label: "OpenRouter", kind: "key" },
   { provider: "jev", label: "Jev (TypeSafe)", kind: "key" },
+  { provider: "openai", label: "OpenAI Decisions", kind: "key" },
+  { provider: "gateway", label: "Vercel AI Gateway", kind: "key" },
 ];
 
 export const connectionKind = (provider: string): ConnectionKind | null =>
@@ -46,6 +50,7 @@ export async function saveApiKey(q: Queryable, provider: Provider, apiKey: strin
 const KEY_CHECK_URLS: Partial<Record<Provider, string>> = {
   gemini: "https://generativelanguage.googleapis.com/v1beta/openai/models",
   openrouter: "https://openrouter.ai/api/v1/key",
+  gateway: GATEWAY_CREDITS_URL,
 };
 
 export type TestResult = { ok: true } | { ok: false; error: string };
@@ -53,6 +58,9 @@ export type TestResult = { ok: true } | { ok: false; error: string };
 async function checkKey(provider: Provider, apiKey: string, fetcher: typeof fetch): Promise<TestResult> {
   if (provider === "jev") {
     return (await testJevKey(apiKey, fetcher)) ? { ok: true } : { ok: false, error: "TypeSafe refused the key." };
+  }
+  if (provider === "openai") {
+    return (await testOpenAiKey(apiKey, fetcher)) ? { ok: true } : { ok: false, error: "OpenAI refused the key." };
   }
   const url = KEY_CHECK_URLS[provider];
   if (!url) return { ok: false, error: "Nothing to test." };

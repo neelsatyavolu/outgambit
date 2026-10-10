@@ -1,4 +1,4 @@
-export const PROVIDERS = ["codex", "grok", "gemini", "openrouter", "jev", "fake"] as const;
+export const PROVIDERS = ["codex", "grok", "gemini", "openrouter", "jev", "openai", "gateway", "fake"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 export const EFFORTS = ["low", "medium", "high"] as const;
 export type Effort = (typeof EFFORTS)[number];

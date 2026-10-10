@@ -46,6 +46,23 @@ describe("listForOwner", () => {
     });
   });
 
+  it("lists the paid decision models as switched off until the owner enables them", async () => {
+    const models = await listForOwner(db, loadCatalog);
+    expect(models.find((m) => m.provider === "openai")).toMatchObject({
+      id: "gpt-6-luna", label: "GPT-6 Luna (Decisions)", supportsEffort: false, enabled: false, custom: false,
+    });
+    expect(models.filter((m) => m.provider === "gateway").map((m) => [m.id, m.enabled])).toEqual([
+      ["liquid/d1", false],
+      ["microsoft/microsoft-decision-1", false],
+    ]);
+  });
+
+  it("gives decision models the bullet and blitz time controls", async () => {
+    await saveSecret(db, "openai", key, NOW);
+    await upsertModel(db, { provider: "openai", modelId: "gpt-6-luna", label: "GPT-6 Luna (Decisions)", supportsEffort: false, enabled: true });
+    expect((await listOffered(db, loadCatalog)).find((m) => m.provider === "openai")?.timeControls).toContain("1+0");
+  });
+
   it("lists models the owner added by hand", async () => {
     await upsertModel(db, { provider: "openrouter", modelId: "x/y:free", label: "Y", supportsEffort: false, enabled: true });
     expect((await listForOwner(db, loadCatalog)).find((m) => m.id === "x/y:free")).toMatchObject({ custom: true });

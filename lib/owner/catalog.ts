@@ -3,6 +3,7 @@ import { bundledModels, loadModels, type ModelCatalog } from "@neelsatyavolu/sha
 import { isFreeModel } from "../ai/free-models";
 import { fakeEnabled } from "../ai/registry";
 import { JEV_MODEL } from "../ai/jev";
+import { OPENAI_DECISIONS_MODEL } from "../ai/openai-decisions";
 import { timeControlsFor } from "../config";
 import type { Queryable } from "../db/client";
 import { listConnections } from "../db/connections";
@@ -54,14 +55,18 @@ async function knownModels(loadCatalog: LoadCatalog): Promise<Known[]> {
     catalog[provider].map((m) => ({
       provider, id: m.id, label: m.label, supportsEffort: true, custom: false, enabledByDefault: false,
     }));
-  const builtIn = (provider: Provider, id: string, label: string): Known => ({
-    provider, id, label, supportsEffort: false, custom: false, enabledByDefault: true,
+  const builtIn = (provider: Provider, id: string, label: string, enabledByDefault: boolean): Known => ({
+    provider, id, label, supportsEffort: false, custom: false, enabledByDefault,
   });
   return [
     ...fromCatalog("codex"),
     ...fromCatalog("grok"),
-    builtIn("jev", JEV_MODEL, "Jev"),
-    ...(fakeEnabled() ? [builtIn("fake", "fake-1", "Scripted")] : []),
+    builtIn("jev", JEV_MODEL, "Jev", true),
+    // These bill per request to the owner's own account, so they also start off.
+    builtIn("openai", OPENAI_DECISIONS_MODEL, "GPT-6 Luna (Decisions)", false),
+    builtIn("gateway", "liquid/d1", "Liquid d1", false),
+    builtIn("gateway", "microsoft/microsoft-decision-1", "Microsoft Decision-1", false),
+    ...(fakeEnabled() ? [builtIn("fake", "fake-1", "Scripted", true)] : []),
   ];
 }
 

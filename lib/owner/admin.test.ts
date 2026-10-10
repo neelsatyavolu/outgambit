@@ -21,7 +21,7 @@ beforeAll(async () => {
 beforeEach(() => resetDb(db));
 
 describe("connectionStatus", () => {
-  it("lists all five providers and how each one connects", async () => {
+  it("lists every provider and how each one connects", async () => {
     await saveSecret(db, "jev", { kind: "key", apiKey: "k" }, NOW);
     expect(await connectionStatus(db)).toEqual([
       { provider: "codex", label: "ChatGPT", kind: "oauth", connected: false, updatedAt: null },
@@ -29,6 +29,8 @@ describe("connectionStatus", () => {
       { provider: "gemini", label: "Gemini", kind: "key", connected: false, updatedAt: null },
       { provider: "openrouter", label: "OpenRouter", kind: "key", connected: false, updatedAt: null },
       { provider: "jev", label: "Jev (TypeSafe)", kind: "key", connected: true, updatedAt: NOW },
+      { provider: "openai", label: "OpenAI Decisions", kind: "key", connected: false, updatedAt: null },
+      { provider: "gateway", label: "Vercel AI Gateway", kind: "key", connected: false, updatedAt: null },
     ]);
   });
 });
@@ -65,6 +67,16 @@ describe("testConnection", () => {
     const { fetcher, calls } = fakeFetch(() => json({ data: {} }));
     expect(await testConnection(db, "openrouter", NOW, fetcher)).toEqual({ ok: true });
     expect(calls[0].url).toBe("https://openrouter.ai/api/v1/key");
+  });
+
+  it("checks an OpenAI key and an AI Gateway key", async () => {
+    await saveSecret(db, "openai", { kind: "key", apiKey: "sk-key" }, NOW);
+    await saveSecret(db, "gateway", { kind: "key", apiKey: "vck-key" }, NOW);
+    const { fetcher, calls } = fakeFetch(() => json({ data: [] }));
+    expect(await testConnection(db, "openai", NOW, fetcher)).toEqual({ ok: true });
+    expect(await testConnection(db, "gateway", NOW, fetcher)).toEqual({ ok: true });
+    expect(calls.map((c) => c.url)).toEqual(["https://api.openai.com/v1/models", "https://ai-gateway.vercel.sh/v1/credits"]);
+    expect(calls[1].headers.authorization).toBe("Bearer vck-key");
   });
 
   it("checks a TypeSafe key", async () => {

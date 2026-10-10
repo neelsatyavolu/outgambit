@@ -6,6 +6,8 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   gemini: "Gemini",
   openrouter: "OpenRouter",
   jev: "TypeSafe",
+  openai: "OpenAI Decisions",
+  gateway: "Vercel AI Gateway",
   fake: "Test",
 };
 

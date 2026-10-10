@@ -7,6 +7,8 @@ export const DAY_TIME_ZONE = "America/Los_Angeles";
 /** One LLM call may not outlast this, whatever the clock says. */
 export const LLM_CALL_TIMEOUT_MS = 240_000;
 export const JEV_TIMEOUT_MS = 3_000;
+/** One call to any other decision model (OpenAI Decisions, AI Gateway). */
+export const DECISION_TIMEOUT_MS = 5_000;
 /** The longest a turn by a fast opponent may hold its lease per call. */
 export const FAST_CALL_TIMEOUT_MS = 10_000;
 /** Time a slow opponent's call may spend fetching or refreshing credentials first. */
@@ -43,7 +45,7 @@ export const TIME_CONTROLS: readonly TimeControl[] = [
 ];
 
 /** Providers quick enough for bullet and blitz. */
-const FAST_PROVIDERS: readonly Provider[] = ["jev", "fake"];
+const FAST_PROVIDERS: readonly Provider[] = ["jev", "openai", "gateway", "fake"];
 
 export const isFastProvider = (provider: Provider): boolean => FAST_PROVIDERS.includes(provider);
 

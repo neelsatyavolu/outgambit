@@ -72,9 +72,26 @@ describe("getAdapter", () => {
 
   it("calls Jev with the TypeSafe key", async () => {
     await saveSecret(db, "jev", { kind: "key", apiKey: "ts-key" }, NOW);
-    const { fetcher, calls } = fakeFetch(() => json({ answers: { move: { choice: "e2e4" } } }));
+    const { fetcher, calls } = fakeFetch(() => json({ answers: { a: { choice: "e2e4" }, b: { choice: "e2e4" } } }));
     expect(await (await getAdapter(db, "jev", NOW, fetcher))!(requestFor())).toEqual({ kind: "move", san: "e4" });
     expect(calls[0].headers.authorization).toBe("Bearer ts-key");
+  });
+
+  it("calls OpenAI's Decisions endpoint with the OpenAI key", async () => {
+    await saveSecret(db, "openai", { kind: "key", apiKey: "sk-key" }, NOW);
+    const { fetcher, calls } = fakeFetch(() => json({ answers: [{ type: "choice", name: "a", choice: "e2e4", probabilities: [] }] }));
+    expect(await (await getAdapter(db, "openai", NOW, fetcher))!(requestFor())).toEqual({ kind: "move", san: "e4" });
+    expect(calls[0].url).toBe("https://api.openai.com/v1/decisions");
+    expect(calls[0].headers.authorization).toBe("Bearer sk-key");
+  });
+
+  it("calls AI Gateway's decision endpoint with the gateway key", async () => {
+    await saveSecret(db, "gateway", { kind: "key", apiKey: "vck-key" }, NOW);
+    const { fetcher, calls } = fakeFetch(() => json({ answers: { a: { choice: "e2e4" } } }));
+    const adapter = await getAdapter(db, "gateway", NOW, fetcher);
+    expect(await adapter!(requestFor([], { model: "liquid/d1" }))).toEqual({ kind: "move", san: "e4" });
+    expect(calls[0].url).toBe("https://ai-gateway.vercel.sh/v1/evaluate");
+    expect(calls[0].body.model).toBe("liquid/d1");
   });
 
   it("offers the scripted opponent only when it is switched on", async () => {
