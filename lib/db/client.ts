@@ -1,4 +1,6 @@
 import "server-only";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { env } from "../env";
 import { migrate } from "./schema";
 
@@ -11,6 +13,8 @@ const PGLITE_SCHEME = "pglite://";
 /** Postgres in-process. Used by tests and by local development. */
 export async function createPgliteDb(dataDir?: string): Promise<Db> {
   const { PGlite } = await import("@electric-sql/pglite");
+  // PGlite creates the data folder itself, but not the folders above it.
+  if (dataDir) mkdirSync(dirname(dataDir), { recursive: true });
   const pg = dataDir ? new PGlite(dataDir) : new PGlite();
   return {
     query: async <T>(sql: string, params: unknown[] = []) => (await pg.query<T>(sql, params)).rows,
@@ -21,9 +25,17 @@ export async function createPgliteDb(dataDir?: string): Promise<Db> {
   };
 }
 
-export async function createNeonDb(url: string): Promise<Db> {
-  const { Pool } = await import("@neondatabase/serverless");
-  const pool = new Pool({ connectionString: url });
+/**
+ * A real Postgres server (Neon in production). `schema` confines every query
+ * to one schema, which lets test files share a server without colliding.
+ */
+export async function createPostgresDb(url: string, schema?: string): Promise<Db> {
+  const { Pool } = await import("pg");
+  const pool = new Pool({
+    connectionString: url,
+    max: 5,
+    ...(schema ? { options: `-c search_path=${schema}` } : {}),
+  });
   return {
     query: async <T>(sql: string, params: unknown[] = []) => (await pool.query(sql, params)).rows as T[],
     transaction: async <T>(fn: (tx: Queryable) => Promise<T>) => {
@@ -48,7 +60,7 @@ export async function createNeonDb(url: string): Promise<Db> {
 async function open(url: string): Promise<Db> {
   const db = url.startsWith(PGLITE_SCHEME)
     ? await createPgliteDb(url === `${PGLITE_SCHEME}memory` ? undefined : url.slice(PGLITE_SCHEME.length))
-    : await createNeonDb(url);
+    : await createPostgresDb(url);
   await migrate(db);
   return db;
 }

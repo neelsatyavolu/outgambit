@@ -24,7 +24,10 @@ export type Harness = {
 };
 
 /** Replies for the AI, in order. A string is a SAN move; the last entry repeats. */
-export type Reply = string | MoveResult | ((request: MoveRequest) => MoveResult | Promise<MoveResult>);
+export type Reply =
+  | string
+  | MoveResult
+  | ((request: MoveRequest, clock: { now: number }) => MoveResult | Promise<MoveResult>);
 
 export function harness(db: Db, replies: Reply[] = [], overrides: Partial<Deps> = {}): Harness {
   const clock = { now: NOON };
@@ -35,7 +38,7 @@ export function harness(db: Db, replies: Reply[] = [], overrides: Partial<Deps> 
     requests.push(request);
     if (reply === undefined) return { kind: "move", san: request.legalMoves[0].san };
     if (typeof reply === "string") return { kind: "move", san: reply };
-    return typeof reply === "function" ? reply(request) : reply;
+    return typeof reply === "function" ? reply(request, clock) : reply;
   };
   const deps: Deps = {
     db,

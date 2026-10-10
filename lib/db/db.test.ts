@@ -1,7 +1,10 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "@/test/db";
 import { makeGame, NOON } from "@/test/factory";
-import type { Db } from "./client";
+import { createPgliteDb, type Db } from "./client";
 import { deleteConnection, getConnection, listConnections, putConnection } from "./connections";
 import {
   activeGameFor, claimLease, commitMove, countForDay, finishGame, getGame, insertGame, listGames, listMoves, renewLease,
@@ -21,6 +24,18 @@ const E4 = { san: "e4", uci: "e2e4", fenAfter: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP
 describe("schema", () => {
   it("can be migrated twice", async () => {
     await expect(migrate(db)).resolves.toBeUndefined();
+  });
+});
+
+describe("createPgliteDb", () => {
+  it("creates its data folder, including missing parents", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gambit-"));
+    try {
+      const onDisk = await createPgliteDb(join(root, "nested", "data"));
+      expect(await onDisk.query("SELECT 1 AS one")).toEqual([{ one: 1 }]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

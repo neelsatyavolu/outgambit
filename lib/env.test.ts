@@ -14,7 +14,7 @@ describe("parseEnv", () => {
   });
 
   it("names every missing variable", () => {
-    expect(() => parseEnv({})).toThrow(/DATABASE_URL.*OWNER_PASSWORD.*SECRETS_KEY.*IP_SALT/s);
+    expect(() => parseEnv({})).toThrow(/DATABASE_URL[\s\S]*OWNER_PASSWORD[\s\S]*SECRETS_KEY[\s\S]*IP_SALT/);
   });
 
   it("rejects a SECRETS_KEY that is not 32 bytes", () => {

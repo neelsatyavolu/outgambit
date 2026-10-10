@@ -11,13 +11,14 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit",
+    "smoke": "node --env-file=.env.local node_modules/vitest/vitest.mjs run --config vitest.smoke.config.mts"
   },
   "dependencies": {
     "@neelsatyavolu/shared-ai-auth": "github:neelsatyavolu/shared-ai-auth#31ac039",
-    "@neondatabase/serverless": "^1.2.0",
     "chess.js": "^1.4.0",
     "next": "16.4.0",
+    "pg": "^8.23.1",
     "react": "19.3.0",
     "react-chessboard": "^5.12.1",
     "react-dom": "19.3.0",
@@ -28,6 +29,7 @@
     "@electric-sql/pglite": "^0.5.8",
     "@playwright/test": "^1.64.0",
     "@types/node": "^22",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^5.0.3",

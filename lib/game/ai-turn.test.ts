@@ -90,27 +90,23 @@ describe("runAiTurn", () => {
   });
 
   it("loses on time when the call outlasts the AI's clock", async () => {
-    let h!: Awaited<ReturnType<typeof afterE4>>["h"];
-    const slow: Reply = () => {
-      h.clock.now += 601_000;
+    const slow: Reply = (_request, clock) => {
+      clock.now += 601_000;
       return { kind: "provider_error", message: "TimeoutError" };
     };
-    const game = await afterE4([slow]);
-    h = game.h;
+    const { h, id } = await afterE4([slow]);
     await h.runJobs();
-    expect(await getGame(db, game.id)).toMatchObject({ status: "finished", result: "white", reason: "timeout", blackMs: 0 });
+    expect(await getGame(db, id)).toMatchObject({ status: "finished", result: "white", reason: "timeout", blackMs: 0 });
   });
 
   it("loses on time when a move arrives after the clock ran out", async () => {
-    let h!: Awaited<ReturnType<typeof afterE4>>["h"];
-    const late: Reply = () => {
-      h.clock.now += 700_000;
+    const late: Reply = (_request, clock) => {
+      clock.now += 700_000;
       return { kind: "move", san: "e5" };
     };
-    const game = await afterE4([late]);
-    h = game.h;
+    const { h, id } = await afterE4([late]);
     await h.runJobs();
-    expect(await getGame(db, game.id)).toMatchObject({ status: "finished", result: "white", reason: "timeout", ply: 1 });
+    expect(await getGame(db, id)).toMatchObject({ status: "finished", result: "white", reason: "timeout", ply: 1 });
   });
 
   it("caps one call at 240 seconds, or at the time left when that is less", () => {
