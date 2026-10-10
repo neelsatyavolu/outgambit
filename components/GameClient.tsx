@@ -2,7 +2,8 @@
 
 import { Chess } from "chess.js";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { isLegalMove } from "@/lib/chess/premove";
 import { api } from "@/lib/client/api";
 import { isStale, shownFen } from "@/lib/client/sync";
 import { capturedPieces, headline } from "@/lib/format";
@@ -14,6 +15,7 @@ import { Seat } from "./Seat";
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const POLL_MS = 1_000;
 const TICK_MS = 100;
+const NO_PREMOVES: readonly string[] = [];
 
 type Synced = { view: GameView; at: number };
 type Optimistic = { fen: string; from: string; to: string };
@@ -35,19 +37,69 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<Optimistic | null>(null);
+  /** Moves the player has queued for their coming turns, soonest first. */
+  const [premoves, setPremoves] = useState(NO_PREMOVES);
   const [shown, setShown] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const sending = useRef(false);
+  // The newest view and queue, for answers that arrive after the render that asked for them.
+  const latest = useRef<GameView | null>(null);
+  const queue = useRef(NO_PREMOVES);
 
-  // Answers can arrive out of order, so one that is behind the board is dropped.
-  const accept = useCallback(
-    (view: GameView) => setSynced((current) => (isStale(current?.view ?? null, view) ? current : { view, at: Date.now() })),
-    [],
-  );
+  function requeue(next: readonly string[]) {
+    queue.current = next;
+    setPremoves(next);
+  }
+
+  /** Answers can arrive out of order, so one that is behind the board is dropped. Returns whether it was taken. */
+  function accept(view: GameView): boolean {
+    if (isStale(latest.current, view)) return false;
+    latest.current = view;
+    setSynced({ view, at: Date.now() });
+    return true;
+  }
 
   // Bumping this refetches the game straight away.
   const [refetch, setRefetch] = useState(0);
   const refresh = () => setRefetch((n) => n + 1);
+
+  async function play(uci: string, view: GameView) {
+    const chess = new Chess(view.fen);
+    try {
+      chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+    } catch {
+      return;
+    }
+    sending.current = true;
+    setError(null);
+    setShown(null);
+    setOptimistic({ fen: chess.fen(), from: uci.slice(0, 2), to: uci.slice(2, 4) });
+    const response = await api<GameView>(`/api/games/${id}/moves`, "POST", { move: uci, ply: view.moves.length });
+    sending.current = false;
+    setOptimistic(null);
+    if (response.success) receive(response.data);
+    else {
+      // Anything queued was planned on top of the move that was just refused.
+      requeue(NO_PREMOVES);
+      setError(response.error);
+      refresh();
+    }
+  }
+
+  /**
+   * Takes a view from the server. When it brings the player's turn round, the
+   * first queued premove goes straight out; if that move is not legal there,
+   * the whole queue is dropped.
+   */
+  function receive(view: GameView) {
+    if (!accept(view)) return;
+    const [next, ...rest] = queue.current;
+    if (!next || view.status !== "active" || view.turn !== view.playerColor) return;
+    const legal = isLegalMove(view.fen, next);
+    requeue(legal ? rest : NO_PREMOVES);
+    if (legal) void play(next, view);
+  }
+  const onPolled = useEffectEvent(receive);
 
   const active = synced?.view.status === "active";
   const polling = synced === null || active;
@@ -58,7 +110,7 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
       const response = await api<GameView>(`/api/games/${id}`);
       // A move sent meanwhile will bring back newer state than this poll.
       if (!alive || sending.current) return;
-      if (response.success) accept(response.data);
+      if (response.success) onPolled(response.data);
       else if (response.error === "Game not found.") setMissing(true);
     };
     void load();
@@ -67,7 +119,7 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
       alive = false;
       clearInterval(poll);
     };
-  }, [id, accept, polling, refetch]);
+  }, [id, polling, refetch]);
 
   useEffect(() => {
     if (!active) return;
@@ -93,27 +145,10 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
   const { view } = synced;
   const live = shown === null || shown >= view.moves.length;
   const myTurn = !spectator && active && view.turn === view.playerColor;
-
-  async function play(uci: string) {
-    const chess = new Chess(view.fen);
-    try {
-      chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
-    } catch {
-      return;
-    }
-    sending.current = true;
-    setError(null);
-    setShown(null);
-    setOptimistic({ fen: chess.fen(), from: uci.slice(0, 2), to: uci.slice(2, 4) });
-    const response = await api<GameView>(`/api/games/${id}/moves`, "POST", { move: uci, ply: view.moves.length });
-    sending.current = false;
-    setOptimistic(null);
-    if (response.success) accept(response.data);
-    else {
-      setError(response.error);
-      refresh();
-    }
-  }
+  const myMove = myTurn && live && !optimistic;
+  // Between the player's moves the board takes premoves instead.
+  const premovable = !spectator && active && live && !myMove;
+  const queued = active ? premoves : NO_PREMOVES;
 
   async function resign() {
     if (!window.confirm("Resign this game?")) return;
@@ -162,9 +197,13 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
         <Board
           fen={fen}
           orientation={view.playerColor}
-          interactive={myTurn && live && !optimistic}
+          interactive={myMove}
+          premovable={premovable}
+          premoves={live ? queued : NO_PREMOVES}
           lastMove={lastMove}
-          onMove={(uci) => void play(uci)}
+          onMove={(uci) => void play(uci, view)}
+          onPremove={(uci) => requeue([...queue.current, uci])}
+          onCancelPremoves={() => requeue(NO_PREMOVES)}
         />
         <aside className="side">
           <Seat {...seat(ai)} />
@@ -175,8 +214,13 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
                 <span className="label">{view.modelLabel} is thinking</span>
               </>
             )}
-            {myTurn && <span className="label">Your move</span>}
+            {myTurn && !optimistic && <span className="label">Your move</span>}
             {!live && <span className="label">Viewing move {count}</span>}
+            {queued.length > 0 && (
+              <button className="btn ghost small" type="button" style={{ marginLeft: "auto" }} onClick={() => requeue(NO_PREMOVES)}>
+                Cancel {queued.length === 1 ? "premove" : `${queued.length} premoves`}
+              </button>
+            )}
           </div>
           <MoveList moves={view.moves} shown={count} onShow={(n) => setShown(n === view.moves.length ? null : n)} />
           <Seat {...seat(view.playerColor)} />

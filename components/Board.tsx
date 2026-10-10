@@ -3,6 +3,7 @@
 import { Chess, type Square } from "chess.js";
 import { useMemo, useState, type CSSProperties } from "react";
 import { Chessboard } from "react-chessboard";
+import { premoveTargets, premoveUci, withPremoves, type Placement } from "@/lib/chess/premove";
 import type { Color } from "@/lib/game/types";
 
 type Target = { to: string; promotion: boolean };
@@ -24,6 +25,13 @@ const TARGET: CSSProperties = {
 };
 const NOTATION: CSSProperties = { fontFamily: "var(--mono)", fontSize: 11 };
 const CAPTURE: CSSProperties = { boxShadow: "inset 0 0 0 4px rgba(14, 14, 13, 0.4)" };
+const PREMOVE: CSSProperties = { boxShadow: "inset 0 0 0 100px rgba(14, 14, 13, 0.34)" };
+
+/** A placement in the shape the board library draws. */
+const drawn = (placement: Placement) =>
+  Object.fromEntries(
+    Object.entries(placement).map(([square, piece]) => [square, { pieceType: `${piece.color}${piece.type.toUpperCase()}` }]),
+  );
 
 /** Legal destinations for each square, and the mover's king square when in check. */
 function analyse(fen: string) {
@@ -45,19 +53,45 @@ export function Board(props: {
   orientation: Color;
   /** Whether the viewer may move pieces right now. */
   interactive: boolean;
+  /** Whether the viewer may queue moves for their coming turns right now. */
+  premovable: boolean;
+  /** The queued moves, drawn as if already played. */
+  premoves: readonly string[];
   lastMove: { from: string; to: string } | null;
   onMove: (uci: string) => void;
+  onPremove: (uci: string) => void;
+  onCancelPremoves: () => void;
 }) {
-  const { fen, interactive, lastMove, onMove } = props;
+  const { fen, interactive, premovable, premoves, lastMove, onMove } = props;
+  const mine = props.orientation === "white" ? "w" : "b";
   const [selected, setSelected] = useState<string | null>(null);
   const [chosen, setPending] = useState<Pending | null>(null);
   const pending = chosen?.fen === fen ? chosen : null;
   const position = useMemo(() => analyse(fen), [fen]);
-  const from = interactive ? selected : null;
-  const reachable = from ? (position.targets.get(from) ?? []) : [];
+  const placement = useMemo(() => withPremoves(fen, premoves), [fen, premoves]);
+  const queued = premoves.length > 0;
+  const shown = useMemo(() => (queued ? drawn(placement) : fen), [queued, placement, fen]);
+  const castling = fen.split(" ")[2] ?? "-";
+  const holds = (square: string) => placement[square]?.color === mine;
+  const from = interactive || (premovable && selected && holds(selected)) ? selected : null;
+  const reachable = !from
+    ? []
+    : premovable
+      ? premoveTargets(placement, from, castling)
+      : (position.targets.get(from) ?? []).map((t) => t.to);
+  const occupied = (square: string) => (premovable ? Boolean(placement[square]) : position.occupied(square));
+
+  /** Queues from→to if the piece moves that way. Returns whether the piece should stay where it was dropped. */
+  function premove(source: string, to: string): boolean {
+    if (!holds(source) || !premoveTargets(placement, source, castling).includes(to)) return false;
+    setSelected(null);
+    props.onPremove(premoveUci(placement, source, to));
+    return true;
+  }
 
   /** Plays from→to if legal. Returns whether the piece should stay where it was dropped. */
   function attempt(source: string, to: string): boolean {
+    if (premovable) return premove(source, to);
     const target = interactive ? position.targets.get(source)?.find((t) => t.to === to) : undefined;
     if (!target) return false;
     setSelected(null);
@@ -70,7 +104,19 @@ export function Board(props: {
     return true;
   }
 
+  function cancelPremoves() {
+    setSelected(null);
+    props.onCancelPremoves();
+  }
+
+  /** A click picks up one of the viewer's pieces or queues the held one; a click anywhere else calls the queue off. */
+  function clickToPremove(square: string) {
+    if (holds(square)) setSelected(square === from ? null : square);
+    else if (!from || !premove(from, square)) cancelPremoves();
+  }
+
   function clickSquare(square: string) {
+    if (premovable) return clickToPremove(square);
     if (!interactive) return;
     if (from && attempt(from, square)) return;
     setSelected(position.targets.has(square) && square !== from ? square : null);
@@ -78,8 +124,10 @@ export function Board(props: {
 
   const squareStyles: Record<string, CSSProperties> = {
     ...(lastMove ? { [lastMove.from]: LAST_MOVE, [lastMove.to]: LAST_MOVE } : {}),
-    ...(position.king ? { [position.king]: CHECK } : {}),
-    ...Object.fromEntries(reachable.map((t) => [t.to, position.occupied(t.to) ? CAPTURE : TARGET])),
+    // With premoves drawn, the king may no longer be shown on the square it is checked on.
+    ...(position.king && !queued ? { [position.king]: CHECK } : {}),
+    ...Object.fromEntries(premoves.flatMap((uci) => [uci.slice(0, 2), uci.slice(2, 4)]).map((square) => [square, PREMOVE])),
+    ...Object.fromEntries(reachable.map((to) => [to, occupied(to) ? CAPTURE : TARGET])),
     ...(from ? { [from]: SELECTED } : {}),
   };
 
@@ -89,9 +137,9 @@ export function Board(props: {
         <Chessboard
           options={{
             id: "gambit",
-            position: fen,
+            position: shown,
             boardOrientation: props.orientation,
-            allowDragging: interactive,
+            allowDragging: interactive || premovable,
             allowDrawingArrows: false,
             animationDurationInMs: 150,
             lightSquareStyle: { backgroundColor: "var(--square-light)" },
@@ -101,10 +149,12 @@ export function Board(props: {
             alphaNotationStyle: NOTATION,
             numericNotationStyle: NOTATION,
             squareStyles,
-            canDragPiece: ({ square }) => Boolean(interactive && square && position.targets.has(square)),
+            canDragPiece: ({ square }) =>
+              Boolean(square && (premovable ? holds(square) : interactive && position.targets.has(square))),
             onPieceDrag: ({ square }) => setSelected(square),
             onPieceDrop: ({ sourceSquare, targetSquare }) => Boolean(targetSquare && attempt(sourceSquare, targetSquare)),
             onSquareClick: ({ square }) => clickSquare(square),
+            onSquareRightClick: cancelPremoves,
           }}
         />
       </div>

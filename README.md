@@ -57,6 +57,15 @@ rating and the model's, separately for bullet (1+0 to 5+0) and regular games.
 Models start at the estimates in `lib/rating/seeds.ts`; `/ratings` shows the
 table.
 
+## Premoves
+
+While the model is thinking, the player can queue moves for their coming turns
+by clicking or dragging as usual. Queued moves are drawn as if played and go
+out one per turn, the moment the turn comes round; if one is not legal by then,
+the rest are dropped with it. A pawn premoved to the last rank becomes a queen.
+A right-click, a click on a square the queue has no use for, or the Cancel
+button calls the queue off. The rules are in `lib/chess/premove.ts`.
+
 ## Checks
 
 | Command | What it runs |
