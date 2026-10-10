@@ -39,7 +39,13 @@ export type Game = {
   result: Result | null;
   reason: Reason | null;
   createdAt: number;
+  /** Whether this game's result has been applied to the ratings. */
+  rated: boolean;
+  /** Both sides' ratings around this game. Null until rated, and for unrated games. */
+  rating: RatingChange | null;
 };
+
+export type RatingChange = { playerBefore: number; playerAfter: number; aiBefore: number; aiAfter: number };
 
 export type Move = { ply: number; san: string; uci: string; fenAfter: string; spentMs: number };
 
@@ -61,6 +67,9 @@ export type GameView = {
   blackMs: number;
   serverNow: number;
   createdAt: number;
+  /** "bullet" or "regular": which ratings this game counts toward. */
+  pool: "bullet" | "regular";
+  rating: RatingChange | null;
 };
 
 export const opposite = (color: Color): Color => (color === "white" ? "black" : "white");

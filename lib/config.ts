@@ -1,6 +1,10 @@
 import type { Provider } from "./game/types";
 
-export const LIMITS = { playerPerDay: 2, ipPerDay: 4, globalPerDay: 10 } as const;
+/**
+ * Games per Pacific day: for one player, for one network (a backstop against
+ * one person making several accounts), and for everyone together.
+ */
+export const LIMITS = { playerPerDay: 5, ipPerDay: 10, globalPerDay: 12 } as const;
 
 export const DAY_TIME_ZONE = "America/Los_Angeles";
 

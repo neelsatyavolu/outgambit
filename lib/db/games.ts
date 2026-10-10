@@ -29,6 +29,16 @@ function rowToGame(row: Row): Game {
     result: row.result as Result | null,
     reason: row.reason as Reason | null,
     createdAt: fromTs(row.created_at),
+    rated: row.rated as boolean,
+    rating:
+      row.player_rating_after == null
+        ? null
+        : {
+            playerBefore: row.player_rating_before as number,
+            playerAfter: row.player_rating_after as number,
+            aiBefore: row.ai_rating_before as number,
+            aiAfter: row.ai_rating_after as number,
+          },
   };
 }
 
@@ -247,4 +257,31 @@ export async function recordAttempt(
     [id, ply, toTs(held)],
   );
   return rows[0] ? { invalid: rows[0].ai_invalid, failures: rows[0].ai_failures } : null;
+}
+
+/** Finished games whose result has not yet been applied to the ratings, oldest first. */
+export async function listUnrated(q: Queryable, limit: number): Promise<string[]> {
+  const rows = await q.query<{ id: string }>(
+    "SELECT id FROM games WHERE status = 'finished' AND rated = false ORDER BY created_at, id LIMIT $1",
+    [limit],
+  );
+  return rows.map((r) => r.id);
+}
+
+/** Locks a finished, unrated game for rating. Null if another caller already rated it. */
+export async function lockUnrated(q: Queryable, id: string): Promise<Game | null> {
+  const rows = await q.query(
+    "SELECT * FROM games WHERE id = $1 AND status = 'finished' AND rated = false FOR UPDATE",
+    [id],
+  );
+  return rows[0] ? rowToGame(rows[0]) : null;
+}
+
+/** Marks a game as rated, with the rating change it caused (none for an unrated game). */
+export async function markRated(q: Queryable, id: string, change: Game["rating"]): Promise<void> {
+  await q.query(
+    `UPDATE games SET rated = true, player_rating_before = $2, player_rating_after = $3,
+            ai_rating_before = $4, ai_rating_after = $5 WHERE id = $1`,
+    [id, change?.playerBefore ?? null, change?.playerAfter ?? null, change?.aiBefore ?? null, change?.aiAfter ?? null],
+  );
 }

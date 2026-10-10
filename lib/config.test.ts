@@ -23,6 +23,6 @@ describe("time controls", () => {
 
 describe("limits", () => {
   it("matches the agreed daily limits", () => {
-    expect(LIMITS).toEqual({ playerPerDay: 2, ipPerDay: 4, globalPerDay: 10 });
+    expect(LIMITS).toEqual({ playerPerDay: 5, ipPerDay: 10, globalPerDay: 12 });
   });
 });

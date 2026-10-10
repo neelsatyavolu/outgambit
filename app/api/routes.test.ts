@@ -144,12 +144,24 @@ describe("owner login", () => {
   });
 });
 
+const PASSWORD = "correct horse battery";
+const SKILL = { kind: "level", level: "intermediate" } as const;
+const someone = () => ({ email: `${randomUUID()}@example.com`, password: PASSWORD });
+/** Registers through the route. A body with no `skill` gets the default one. */
+const register = async (body: unknown, ip = "198.51.100.40") => {
+  const full = body && typeof body === "object" && !("skill" in body) ? { ...body, skill: SKILL } : body;
+  return (await import("./account/register/route")).POST(request("POST", "/api/account/register", { body: full, ip }));
+};
+const GAME = { provider: "fake", model: "fake-1", effort: null, timeControl: "5+0", color: "white" };
+const postGame = async (ip: string, body: unknown = GAME) =>
+  (await import("./games/route")).POST(request("POST", "/api/games", { body, ip }));
+
+/** Starts a game against the scripted opponent, creating an account first if this browser has none. */
 async function startGame(ip: string): Promise<string> {
   vi.stubEnv("GAMBIT_FAKE_AI", "1");
   vi.stubEnv("GAMBIT_FAKE_SCRIPT", "e5");
-  const { POST } = await import("./games/route");
-  const body = { provider: "fake", model: "fake-1", effort: null, timeControl: "5+0", color: "white" };
-  const response = await POST(request("POST", "/api/games", { body, ip }));
+  if (!jar.has(ACCOUNT_COOKIE)) expect((await register(someone(), ip)).status).toBe(201);
+  const response = await postGame(ip);
   expect(response.status).toBe(201);
   return (await response.json()).data.id as string;
 }
@@ -164,7 +176,7 @@ describe("player routes", () => {
   it("gives a new visitor an id cookie scripts cannot read", async () => {
     const { GET } = await import("./lobby/route");
     const response = await GET(request("GET", "/api/lobby", { origin: null, ip: "198.51.100.30" }));
-    expect((await response.json()).data.capacity.player).toEqual({ used: 0, limit: 2 });
+    expect((await response.json()).data.capacity.player).toEqual({ used: 0, limit: 5 });
     expect(jar.get(PLAYER_COOKIE)?.options).toMatchObject({ httpOnly: true, sameSite: "lax", path: "/" });
   });
 
@@ -191,6 +203,7 @@ describe("player routes", () => {
     const gameId = await startGame("198.51.100.33");
     expect((await view(gameId)).status).toBe(200);
 
+    jar.clear();
     jar.set(PLAYER_COOKIE, { value: randomUUID() });
     expect((await view(gameId)).status).toBe(404);
     expect((await move(gameId, { move: "e2e4", ply: 0 })).status).toBe(404);
@@ -204,19 +217,54 @@ describe("player routes", () => {
     expect(await watched.text()).not.toMatch(/playerId|ipHash/);
   });
 
+  it("does not let a guest start a game", async () => {
+    vi.stubEnv("GAMBIT_FAKE_AI", "1");
+    const response = await postGame("198.51.100.35");
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ success: false, error: "Create an account or sign in to play." });
+  });
+
+  it("does not let an account play before it has said how strong it is", async () => {
+    vi.stubEnv("GAMBIT_FAKE_AI", "1");
+    await register(someone(), "198.51.100.36");
+    const { getDb } = await import("@/lib/db/client");
+    await (await getDb()).query("UPDATE users SET bullet_rating = NULL, regular_rating = NULL");
+    const response = await postGame("198.51.100.36");
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/how strong/i);
+  });
+
+  it("shows both sides' rating change when a game ends", async () => {
+    const gameId = await startGame("198.51.100.37");
+    expect((await resign(gameId)).status).toBe(200);
+    const { data } = await (await view(gameId)).json();
+    expect(data).toMatchObject({ status: "finished", pool: "bullet", rating: { playerBefore: 1200, aiBefore: 700 } });
+    expect(data.rating.playerAfter).toBeLessThan(1200);
+    expect(data.rating.aiAfter).toBeGreaterThan(700);
+  });
+
+  it("tells the setup screen who is signed in and how every opponent is rated", async () => {
+    vi.stubEnv("GAMBIT_FAKE_AI", "1");
+    const lobby = async () =>
+      (await (await import("./lobby/route")).GET(request("GET", "/api/lobby", { origin: null, ip: "198.51.100.38" }))).json();
+    expect((await lobby()).data.account).toBeNull();
+    const ada = someone();
+    await register(ada, "198.51.100.38");
+    const { data } = await lobby();
+    expect(data.account).toEqual({ email: ada.email, ratings: { regular: 1300, bullet: 1200 }, needsSkill: false });
+    // Other tests in this file have played the scripted opponent, so only the shape is fixed here.
+    const line = (pool: string) =>
+      expect.objectContaining({ provider: "fake", id: "fake-1", label: "Scripted", effort: null, pool, rating: expect.any(Number), games: expect.any(Number) });
+    expect(data.ratings).toEqual([line("bullet"), line("regular")]);
+  });
+
   it("refuses the scripted opponent when it is switched off", async () => {
-    const { POST } = await import("./games/route");
-    const body = { provider: "fake", model: "fake-1", effort: null, timeControl: "5+0", color: "white" };
-    const response = await POST(request("POST", "/api/games", { body, ip: "198.51.100.34" }));
-    expect(response.status).toBe(400);
+    await register(someone(), "198.51.100.34");
+    expect((await postGame("198.51.100.34")).status).toBe(400);
   });
 });
 
 describe("accounts", () => {
-  const PASSWORD = "correct horse battery";
-  const someone = () => ({ email: `${randomUUID()}@example.com`, password: PASSWORD });
-  const register = async (body: unknown, ip = "198.51.100.40") =>
-    (await import("./account/register/route")).POST(request("POST", "/api/account/register", { body, ip }));
   const login = async (body: unknown, ip = "198.51.100.41") =>
     (await import("./account/login/route")).POST(request("POST", "/api/account/login", { body, ip }));
   const logout = async () => (await import("./account/logout/route")).POST(request("POST", "/api/account/logout"));
@@ -304,15 +352,36 @@ describe("accounts", () => {
     expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
   });
 
-  it("keeps the games a guest played when they register, and counts them", async () => {
-    const gameId = await startGame("198.51.100.50");
-    expect((await resign(gameId)).status).toBe(200);
-    await register(someone(), "198.51.100.50");
+  it("requires a new account to say how strong the player is", async () => {
+    for (const skill of [undefined, { kind: "level", level: "grandmaster" }, { kind: "chesscom", bullet: 50, regular: 1500 }]) {
+      expect((await register({ ...someone(), skill }, "198.51.100.56")).status).toBe(400);
+    }
+    expect((await register({ ...someone(), skill: { kind: "chesscom", bullet: 1432, regular: 1688 } }, "198.51.100.56")).status).toBe(201);
+    expect((await (await account()).json()).data.ratings).toEqual({ regular: 1688, bullet: 1432 });
+  });
+
+  it("lets a player correct their strength until their first rated game, and not after", async () => {
+    const setSkill = async (skill: unknown) =>
+      (await import("./account/skill/route")).PUT(request("PUT", "/api/account/skill", { body: skill }));
+    await register(someone(), "198.51.100.57");
+    expect((await setSkill({ kind: "level", level: "advanced" })).status).toBe(200);
+    expect((await (await account()).json()).data.ratings).toEqual({ regular: 1900, bullet: 1800 });
+
+    const gameId = await startGame("198.51.100.57");
+    await resign(gameId);
+    await view(gameId);
+    const refused = await setSkill({ kind: "level", level: "expert" });
+    expect(refused.status).toBe(409);
     const { data } = await (await account()).json();
-    expect(data.games.map((g: { id: string }) => g.id)).toEqual([gameId]);
-    expect(data.games[0]).toMatchObject({ status: "finished", result: "black", reason: "resignation", playerColor: "white" });
-    expect(data.stats.overall).toEqual({ played: 1, won: 0, lost: 1, drawn: 0 });
-    expect((await view(gameId)).status).toBe(200);
+    expect(data.ratings.regular).toBe(1900);
+    expect(data.ratings.bullet).toBeLessThan(1800);
+    expect(data.rated).toEqual({ regular: 0, bullet: 1 });
+  });
+
+  it("refuses a strength change from a guest or from another site", async () => {
+    const { PUT } = await import("./account/skill/route");
+    expect((await PUT(request("PUT", "/api/account/skill", { body: SKILL }))).status).toBe(401);
+    expect((await PUT(request("PUT", "/api/account/skill", { body: SKILL, origin: "https://evil.test" }))).status).toBe(403);
   });
 
   it("plays new games under the account, so they follow it to another browser", async () => {

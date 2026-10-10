@@ -59,6 +59,8 @@ function newGame(deps: Deps, input: CreateInput, model: OfferedModel, now: numbe
     result: null,
     reason: null,
     createdAt: now,
+    rated: false,
+    rating: null,
   };
 }
 

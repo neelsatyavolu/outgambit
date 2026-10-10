@@ -1,3 +1,4 @@
+import { getUser } from "../db/users";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "@/test/db";
 import { makeGame, NOON } from "@/test/factory";
@@ -14,9 +15,17 @@ beforeAll(async () => {
 beforeEach(() => resetDb(db));
 
 const GUEST = "guest-cookie-1";
-const details = { email: "ada@example.com", password: "correct horse battery", guestId: GUEST, now: NOON };
+const skill = { kind: "level", level: "intermediate" } as const;
+const details = { email: "ada@example.com", password: "correct horse battery", guestId: GUEST, now: NOON, skill };
 
 describe("register", () => {
+  it("gives the account the ratings that go with the strength it chose", async () => {
+    const id = await register(db, details);
+    expect(await getUser(db, id!)).toMatchObject({ level: "intermediate", ratings: { regular: 1300, bullet: 1200 } });
+    const rated = await register(db, { ...details, email: "bo@example.com", skill: { kind: "chesscom", bullet: 1432, regular: 1688 } });
+    expect(await getUser(db, rated!)).toMatchObject({ level: null, ratings: { regular: 1688, bullet: 1432 } });
+  });
+
   it("creates an account that does not hold the password", async () => {
     const id = await register(db, details);
     const user = await findUserByEmail(db, "ada@example.com");

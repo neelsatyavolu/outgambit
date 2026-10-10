@@ -3,7 +3,9 @@ import { resetDb, testDb } from "@/test/db";
 import { NOON } from "@/test/factory";
 import { harness, input } from "@/test/game";
 import type { Db } from "../db/client";
+import { accountPlayerId } from "../account/session";
 import { claimLease, getGame } from "../db/games";
+import { insertUser } from "../db/users";
 import { createGame } from "./create";
 import { playerMove } from "./move";
 import { getGameView } from "./state";
@@ -118,6 +120,28 @@ describe("getGameView", () => {
     const { h, id } = await slowGame();
     await getGameView(h.deps, id, player);
     expect(h.jobs).toHaveLength(0);
+  });
+
+  it("says which ratings the game counts toward", async () => {
+    const { h, id } = await slowGame();
+    expect(await getGameView(h.deps, id, player)).toMatchObject({ pool: "regular", rating: null });
+  });
+
+  it("shows both sides' rating change once an account's game is over", async () => {
+    const userId = "3f0c2f6e-5b1a-4c8e-9d2a-7e6f5a4b3c2d";
+    await insertUser(db, { id: userId, email: "ada@example.com", passwordHash: "x", createdAt: NOON }, {
+      level: "intermediate", ratings: { regular: 1300, bullet: 1200 },
+    });
+    const me = accountPlayerId(userId);
+    const h = harness(db, ["e5", "Qh4#"]);
+    const created = await createGame(h.deps, input({ playerId: me }));
+    const id = created.ok ? created.game.id : "";
+    await playerMove(h.deps, id, me, "f2f3", 0);
+    await playerMove(h.deps, id, me, "g2g4", 2);
+    const view = await getGameView(h.deps, id, { playerId: me, owner: false });
+    expect(view).toMatchObject({ status: "finished", result: "black", rating: { playerBefore: 1300, aiBefore: 600 } });
+    expect(view!.rating!.playerAfter).toBeLessThan(1300);
+    expect(view!.rating!.aiAfter).toBeGreaterThan(600);
   });
 
   it("stops the clocks once the game is over", async () => {

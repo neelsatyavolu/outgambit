@@ -268,10 +268,18 @@ describe("rate limit", () => {
 describe("users", () => {
   const ada = { id: "3f0c2f6e-5b1a-4c8e-9d2a-7e6f5a4b3c2d", email: "ada@example.com", passwordHash: "hash-1", createdAt: NOON };
 
+  // A new account has said nothing about its strength and has played nothing.
+  const fresh = { level: null, ratings: { bullet: null, regular: null }, games: { bullet: 0, regular: 0 } };
+
   it("round-trips a user by email and by id", async () => {
     expect(await insertUser(db, ada)).toBe(true);
-    expect(await findUserByEmail(db, "ada@example.com")).toEqual(ada);
-    expect(await getUser(db, ada.id)).toEqual(ada);
+    expect(await findUserByEmail(db, "ada@example.com")).toEqual({ ...ada, ...fresh });
+    expect(await getUser(db, ada.id)).toEqual({ ...ada, ...fresh });
+  });
+
+  it("stores the strength a user gave when signing up", async () => {
+    await insertUser(db, ada, { level: "advanced", ratings: { regular: 1900, bullet: 1800 } });
+    expect(await getUser(db, ada.id)).toMatchObject({ level: "advanced", ratings: { regular: 1900, bullet: 1800 } });
   });
 
   it("returns null for an unknown user", async () => {
@@ -283,7 +291,7 @@ describe("users", () => {
     await insertUser(db, ada);
     const second = { ...ada, id: "8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", passwordHash: "hash-2" };
     expect(await insertUser(db, second)).toBe(false);
-    expect(await findUserByEmail(db, "ada@example.com")).toEqual(ada);
+    expect(await findUserByEmail(db, "ada@example.com")).toMatchObject(ada);
   });
 });
 

@@ -64,6 +64,23 @@ const STATEMENTS = [
   // Later additions go here as idempotent ALTERs, so existing databases catch up.
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_invalid integer NOT NULL DEFAULT 0`,
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_failures integer NOT NULL DEFAULT 0`,
+  `CREATE TABLE IF NOT EXISTS model_ratings (
+    key text NOT NULL,
+    pool text NOT NULL,
+    rating integer NOT NULL,
+    games integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (key, pool)
+  )`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS level text`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS bullet_rating integer`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS regular_rating integer`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS bullet_games integer NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS regular_games integer NOT NULL DEFAULT 0`,
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS rated boolean NOT NULL DEFAULT false`,
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS player_rating_before integer`,
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS player_rating_after integer`,
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_rating_before integer`,
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_rating_after integer`,
 ];
 
 /** Creates any missing tables and columns. Safe to run on every start. */

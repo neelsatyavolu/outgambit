@@ -50,24 +50,23 @@ describe("capacity", () => {
 
   it("reports a fresh day as open", async () => {
     expect(await capacity(db, "a", "x", NOON)).toEqual({
-      player: { used: 0, limit: 2 }, global: { used: 0, limit: 10 }, resetAt: nextResetAt(NOON), blocked: null,
+      player: { used: 0, limit: 5 }, global: { used: 0, limit: 12 }, resetAt: nextResetAt(NOON), blocked: null,
     });
   });
 
-  it("blocks a player who has used both games", async () => {
-    await insertGame(db, makeGame({ playerId: "a", status: "finished" }));
-    await insertGame(db, makeGame({ playerId: "a", status: "finished" }));
-    expect(await capacity(db, "a", "x", NOON)).toMatchObject({ player: { used: 2, limit: 2 }, blocked: "player" });
+  it("blocks a player who has used all five games", async () => {
+    for (let i = 0; i < 5; i++) await insertGame(db, makeGame({ playerId: "a", ipHash: `i${i}`, status: "finished" }));
+    expect(await capacity(db, "a", "x", NOON)).toMatchObject({ player: { used: 5, limit: 5 }, blocked: "player" });
   });
 
-  it("blocks a network that has used four games, and shows that player as full", async () => {
-    for (const playerId of ["b", "c", "d", "e"]) await insertGame(db, makeGame({ playerId, ipHash: "x", status: "finished" }));
-    expect(await capacity(db, "a", "x", NOON)).toMatchObject({ player: { used: 2, limit: 2 }, blocked: "network" });
+  it("blocks a network that has used ten games, and shows that player as full", async () => {
+    for (let i = 0; i < 10; i++) await insertGame(db, makeGame({ playerId: `p${i}`, ipHash: "x", status: "finished" }));
+    expect(await capacity(db, "a", "x", NOON)).toMatchObject({ player: { used: 5, limit: 5 }, blocked: "network" });
   });
 
-  it("blocks everyone once ten games have been played", async () => {
-    for (let i = 0; i < 10; i++) await insertGame(db, makeGame({ playerId: `p${i}`, ipHash: `i${i}`, status: "finished" }));
-    expect(await capacity(db, "a", "x", NOON)).toMatchObject({ global: { used: 10, limit: 10 }, blocked: "global" });
+  it("blocks everyone once twelve games have been played", async () => {
+    for (let i = 0; i < 12; i++) await insertGame(db, makeGame({ playerId: `p${i}`, ipHash: `i${i}`, status: "finished" }));
+    expect(await capacity(db, "a", "x", NOON)).toMatchObject({ global: { used: 12, limit: 12 }, blocked: "global" });
   });
 
   it("does not count yesterday's games", async () => {

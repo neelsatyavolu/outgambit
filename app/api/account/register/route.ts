@@ -15,7 +15,9 @@ export async function POST(request: Request) {
   const allowed = await hitRateLimit(db, `account-register:${ipHashOf(request)}`, ACCOUNTS, WINDOW_MS, now);
   if (!allowed) return fail("Too many new accounts from this network. Try again in an hour.", 429);
   const body = await readBody(request, registerSchema);
-  if (!body) return fail(`Enter a valid email and a password of at least ${MIN_PASSWORD_LENGTH} characters.`, 400);
+  if (!body) {
+    return fail(`Enter a valid email, a password of at least ${MIN_PASSWORD_LENGTH} characters, and how strong you are.`, 400);
+  }
   const userId = await register(db, { ...body, guestId: await guestId(), now });
   if (!userId) return fail("That email already has an account. Sign in instead.", 409);
   await startAccountSession(userId);

@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { pausingAfter, resetDb, testDb } from "@/test/db";
 import { NOON, START_FEN } from "@/test/factory";
 import { harness, input } from "@/test/game";
+import { LIMITS } from "../config";
 import type { Db } from "../db/client";
 import { finishGame, getGame } from "../db/games";
 import { createGame } from "./create";
@@ -98,28 +99,27 @@ describe("createGame", () => {
     expect(first.ok && (await getGame(db, first.game.id))).toMatchObject({ status: "finished", reason: "timeout" });
   });
 
-  it("allows two games a day per player and refuses the third", async () => {
+  it("allows a player five games a day and refuses the sixth", async () => {
     const h = harness(db);
-    expect((await playOne(h)).ok).toBe(true);
-    expect((await playOne(h)).ok).toBe(true);
+    for (let i = 0; i < LIMITS.playerPerDay; i++) expect((await playOne(h)).ok).toBe(true);
     expect(await createGame(h.deps, input())).toEqual({ ok: false, error: "player_limit" });
   });
 
-  it("allows four games a day per network and refuses the fifth", async () => {
+  it("allows a network ten games a day and refuses the eleventh", async () => {
     const h = harness(db);
-    for (const playerId of ["a", "b", "c", "d"]) expect((await playOne(h, { playerId })).ok).toBe(true);
-    expect(await createGame(h.deps, input({ playerId: "e" }))).toEqual({ ok: false, error: "network_limit" });
+    for (let i = 0; i < LIMITS.ipPerDay; i++) expect((await playOne(h, { playerId: `p${i}` })).ok).toBe(true);
+    expect(await createGame(h.deps, input({ playerId: "one-more" }))).toEqual({ ok: false, error: "network_limit" });
   });
 
-  it("allows ten games a day overall and refuses the eleventh", async () => {
+  it("allows twelve games a day overall and refuses the thirteenth", async () => {
     const h = harness(db);
-    for (let i = 0; i < 10; i++) expect((await playOne(h, { playerId: `p${i}`, ipHash: `i${i}` })).ok).toBe(true);
+    for (let i = 0; i < LIMITS.globalPerDay; i++) expect((await playOne(h, { playerId: `p${i}`, ipHash: `i${i}` })).ok).toBe(true);
     expect(await createGame(h.deps, input({ playerId: "late", ipHash: "new" }))).toEqual({ ok: false, error: "global_limit" });
   });
 
   it("gives out only the last slot when two visitors ask at once", async () => {
     const h = harness(db);
-    for (let i = 0; i < 9; i++) await playOne(h, { playerId: `p${i}`, ipHash: `i${i}` });
+    for (let i = 0; i < LIMITS.globalPerDay - 1; i++) await playOne(h, { playerId: `p${i}`, ipHash: `i${i}` });
     // Each request lingers between counting the day's games and adding its own.
     const racing = { ...h.deps, db: pausingAfter(db, /count\(\*\)/) };
     const results = await Promise.all([
@@ -140,8 +140,7 @@ describe("createGame", () => {
   it("counts a game made at 23:59 Pacific toward that day only", async () => {
     const h = harness(db);
     h.clock.now = Date.UTC(2026, 9, 10, 6, 59);
-    await playOne(h);
-    await playOne(h);
+    for (let i = 0; i < LIMITS.playerPerDay; i++) await playOne(h);
     expect((await createGame(h.deps, input())).ok).toBe(false);
     h.clock.now = Date.UTC(2026, 9, 10, 7, 0);
     const next = await createGame(h.deps, input());

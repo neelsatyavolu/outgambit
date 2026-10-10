@@ -14,6 +14,15 @@ const PREFIX = "account.";
  */
 export const accountPlayerId = (userId: string): string => `account:${userId}`;
 
+const ACCOUNT_PLAYER_PREFIX = "account:";
+
+/** The user behind a player id, or null when it is a guest's. */
+export function userIdOf(playerId: string): string | null {
+  if (!playerId.startsWith(ACCOUNT_PLAYER_PREFIX)) return null;
+  const userId = playerId.slice(ACCOUNT_PLAYER_PREFIX.length);
+  return isPlayerId(userId) ? userId : null;
+}
+
 export function createAccountSession(userId: string, now: number): string {
   return sign(`${PREFIX}${userId}.${now + ACCOUNT_TTL_MS}`);
 }

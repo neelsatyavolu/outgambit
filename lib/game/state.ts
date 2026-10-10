@@ -1,5 +1,7 @@
 import { remainingMs } from "../chess/clock";
 import { finishGame, getGame, listMoves } from "../db/games";
+import { poolOf } from "../rating/elo";
+import { settleRatings } from "../rating/settle";
 import { runAiTurn } from "./ai-turn";
 import type { Deps } from "./deps";
 import { opposite, turnAt, type Game, type GameView } from "./types";
@@ -29,12 +31,19 @@ async function keepAlive(deps: Deps, game: Game, now: number): Promise<Game> {
   return game;
 }
 
+/** Applies a just-finished game to the ratings, so the view can show what it changed. */
+async function rated(deps: Deps, game: Game): Promise<Game> {
+  if (game.status !== "finished" || game.rated) return game;
+  await settleRatings(deps.db);
+  return (await getGame(deps.db, game.id)) ?? game;
+}
+
 /** The game as a browser may see it, or null if this viewer may not. */
 export async function getGameView(deps: Deps, gameId: string, viewer: Viewer): Promise<GameView | null> {
   const found = await getGame(deps.db, gameId);
   if (!found || !canSee(found, viewer)) return null;
   const now = deps.now();
-  const game = await keepAlive(deps, found, now);
+  const game = await rated(deps, await keepAlive(deps, found, now));
   return {
     id: game.id,
     status: game.status,
@@ -52,5 +61,7 @@ export async function getGameView(deps: Deps, gameId: string, viewer: Viewer): P
     blackMs: Math.max(0, remainingMs(game, "black", now)),
     serverNow: now,
     createdAt: game.createdAt,
+    pool: poolOf(game.timeControl),
+    rating: game.rating,
   };
 }

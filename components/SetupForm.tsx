@@ -21,7 +21,7 @@ const SIDES = [
 ] as const;
 
 const BLOCKED_TEXT = {
-  player: "You have played both of your games for today.",
+  player: "You have played all of your games for today.",
   network: "This network has used its games for today.",
   global: "All of today's games have been played.",
 } as const;

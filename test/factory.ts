@@ -29,6 +29,8 @@ export function makeGame(overrides: Partial<Game> = {}): Game {
     result: null,
     reason: null,
     createdAt: NOON,
+    rated: false,
+    rating: null,
     ...overrides,
   };
 }
