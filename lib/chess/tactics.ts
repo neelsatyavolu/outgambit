@@ -19,7 +19,7 @@ export type Assessed = {
   score: number;
 };
 
-const VALUES: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+export const VALUES: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
 
 const other = (side: Side): Side => (side === "w" ? "b" : "w");
 

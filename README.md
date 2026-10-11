@@ -139,7 +139,7 @@ button calls the queue off. The rules are in `lib/chess/premove.ts`.
 | `pnpm test:coverage` | The same, with coverage |
 | `pnpm test:e2e` | A browser plays a game against the scripted opponent |
 | `pnpm typecheck`, `pnpm lint` | Types and lint |
-| `JEV_BENCH=1 TYPESAFE_API_KEY=… pnpm smoke smoke/jev-strength.smoke.ts` | Plays Jev with and without the code assist, to compare. A few hundred Jev calls. |
+| `JEV_BENCH=1 TYPESAFE_API_KEY=… pnpm smoke smoke/jev-strength.smoke.ts` | Plays Jev with and without the one-move tactics, and with and without being told what each move does, to compare. A few hundred Jev calls. |
 | `EFFORT_BENCH=1 pnpm smoke smoke/effort-timing.smoke.ts --silent=false` | Times every model that has effort levels, at each effort, and counts the tactics it finds. A dozen calls per model. |
 | `pnpm smoke smoke/usage.smoke.ts --silent=false` | Reads the ChatGPT and Grok meters and OpenRouter's free limit with the stored credentials, and prints them. Spends nothing. |
 | `pnpm smoke` | Asks every model you have enabled for a real move. Spends quota. Stop `pnpm dev` first when using the local database. |

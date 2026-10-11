@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fakeFetch, json, requestFor } from "@/test/ai";
+import { NOTE } from "../chess/notes";
+import { INSTRUCTIONS, instructionsFor } from "./decision";
 import { jevAdapter, testJevKey } from "./jev";
 
 type Question = { type: string; criteria: Record<string, string>; instructions: unknown };
@@ -29,7 +31,7 @@ describe("jevAdapter", () => {
   it("gives Jev the board, the side to move and the game so far", async () => {
     const { fetcher, calls } = fakeFetch(() => respond(answer("e7e5")));
     await jevAdapter("k", { fetch: fetcher })(requestFor(["e4"]));
-    expect(calls[0].body.state).toMatchObject({ side_to_move: "black", moves_so_far: "1. e4" });
+    expect(calls[0].body.state).toMatchObject({ side_to_move: "black", last_moves: "1. e4" });
     expect((calls[0].body.state as { board: string }).board).toContain("8 r n b q k b n r");
   });
 
@@ -40,6 +42,65 @@ describe("jevAdapter", () => {
     expect(criteria.g1f3).toBe("Knight from g1 to f3, develops a piece");
     expect(criteria.e2e4).toBe("Pawn from e2 to e4, claims the centre");
     expect(criteria.a2a3).toBe("Pawn from a2 to a3");
+  });
+
+  it("tells Jev the phase of the game and who is ahead", async () => {
+    const { fetcher, calls } = fakeFetch(() => respond(answer("e7e5")));
+    await jevAdapter("k", { fetch: fetcher })(requestFor(["e4"]));
+    expect(calls[0].body.state).toMatchObject({ phase: "opening", material: "level" });
+    // White has taken a queen for nothing.
+    await jevAdapter("k", { fetch: fetcher })(requestFor([...FREE_QUEEN, "Nxh4"]));
+    expect(calls[1].body.state).toMatchObject({ side_to_move: "black", material: "white is ahead by 9 (pawn 1, knight or bishop 3, rook 5, queen 9)" });
+  });
+
+  it("gives advice that fits the phase", async () => {
+    const { fetcher, calls } = fakeFetch(() => respond(answer("g1f3")));
+    await jevAdapter("k", { fetch: fetcher })(requestFor());
+    expect(questionsOf(calls[0].body).a.instructions).toEqual(instructionsFor("opening"));
+    expect(instructionsFor("opening").guidance).toContain("develop knights and bishops");
+    expect(instructionsFor("middlegame").guidance).toContain("rook to an open file");
+    expect(instructionsFor("endgame").guidance).toContain("advance passed pawns");
+    for (const phase of ["opening", "middlegame", "endgame"] as const) {
+      expect(instructionsFor(phase).guidance).toContain("threatens checkmate");
+    }
+  });
+
+  it("only gives advice about something when an option does it, to keep the question short", () => {
+    const plain = instructionsFor("middlegame").guidance;
+    expect(plain).not.toMatch(/repeats|trade|draws|winning/);
+    expect(instructionsFor("middlegame", 0, [NOTE.repeats]).guidance).toContain("repeats an earlier position");
+    expect(instructionsFor("middlegame", 0, [NOTE.draws]).guidance).toContain("draws the game at once");
+    // A trade is good or bad by who is ahead, and neither when the material is level.
+    expect(instructionsFor("middlegame", 2, [NOTE.trade]).guidance).toContain("an even trade helps");
+    expect(instructionsFor("middlegame", -2, [NOTE.trade]).guidance).toContain("avoid an even trade");
+    expect(instructionsFor("middlegame", 0, [NOTE.trade]).guidance).toBe(plain);
+  });
+
+  it("tells a side that is clearly ahead how to finish the game", () => {
+    expect(instructionsFor("endgame", 5).guidance).toContain("leave the enemy king fewer squares");
+    expect(instructionsFor("endgame", 2).guidance).not.toContain("fewer squares");
+  });
+
+  it("sends only the last few moves of a long game", async () => {
+    const { fetcher, calls } = fakeFetch(() => respond(answer("e7e5")));
+    const shuffle = ["Nf3", "Nf6", "Ng1", "Ng8"];
+    await jevAdapter("k", { fetch: fetcher })(requestFor([...shuffle, ...shuffle, ...shuffle, "e4"]));
+    expect((calls[0].body.state as { last_moves: string }).last_moves).toBe("... 2. Ng1 Ng8 3. Nf3 Nf6 4. Ng1 Ng8 5. Nf3 Nf6 6. Ng1 Ng8 7. e4");
+  });
+
+  it("says what a move threatens, ahead of what it does for the position", async () => {
+    const { fetcher, calls } = fakeFetch(() => respond(answer("d1h5")));
+    await jevAdapter("k", { fetch: fetcher })(requestFor(["e4", "e5", "Bc4", "Nc6"]));
+    const { criteria } = questionsOf(calls[0].body).a;
+    expect(criteria.d1h5).toBe("Queen from d1 to h5, threatens checkmate next move, brings the queen out early");
+  });
+
+  it("can leave the notes out, for measuring what they add", async () => {
+    const { fetcher, calls } = fakeFetch(() => respond(answer("g1f3")));
+    await jevAdapter("k", { fetch: fetcher, notes: false })(requestFor());
+    const { a } = questionsOf(calls[0].body);
+    expect(a.criteria.g1f3).toBe("Knight from g1 to f3");
+    expect(a.instructions).toEqual(INSTRUCTIONS);
   });
 
   it("warns about an early queen move and a king walk", async () => {

@@ -65,16 +65,22 @@ async function series(assist: boolean): Promise<Tally> {
   return tally;
 }
 
-/** Assisted Jev against plain Jev. Returns the result from the assisted side's point of view. */
-async function headToHead(assistedIsWhite: boolean): Promise<{ result: "win" | "loss" | "draw" | "unfinished"; material: number; plies: number }> {
-  const sides = { assisted: jevAdapter(apiKey!, { assist: true }), plain: jevAdapter(apiKey!, { assist: false }) };
+type Sides = { assisted: Adapter; plain: Adapter };
+
+/** Jev with the one-move tactics against Jev without them. */
+const TACTICS = (): Sides => ({ assisted: jevAdapter(apiKey!, { assist: true }), plain: jevAdapter(apiKey!, { assist: false }) });
+/** Jev told what each move does against Jev given the bare moves. Both keep the one-move tactics. */
+const NOTES = (): Sides => ({ assisted: jevAdapter(apiKey!, { notes: true }), plain: jevAdapter(apiKey!, { notes: false }) });
+
+/** One side of `sides` against the other. Returns the result from the assisted side's point of view. */
+async function headToHead(sides: Sides, assistedIsWhite: boolean): Promise<{ result: "win" | "loss" | "draw" | "unfinished"; reason?: string; material: number; plies: number }> {
   const history: string[] = [];
   for (let ply = 0; ply < 100; ply++) {
     const position = replay(history);
     if (position.outcome) {
       const mine = assistedIsWhite ? "white" : "black";
       const result = position.outcome.result === "draw" ? "draw" : position.outcome.result === mine ? "win" : "loss";
-      return { result, material: 0, plies: ply };
+      return { result, reason: position.outcome.reason, material: 0, plies: ply };
     }
     const assistedToMove = (position.turn === "white") === assistedIsWhite;
     const result = await (assistedToMove ? sides.assisted : sides.plain)({
@@ -88,10 +94,10 @@ async function headToHead(assistedIsWhite: boolean): Promise<{ result: "win" | "
 }
 
 describe.skipIf(!apiKey || !process.env.JEV_BENCH)("Jev against a random mover", () => {
-  it("beats unassisted Jev head to head", async () => {
+  it.each([["tactics", TACTICS], ["notes", NOTES]] as const)("plays better with %s than without, head to head", async (name, sides) => {
     const games = [];
-    for (let game = 0; game < GAMES; game++) games.push(await headToHead(game % 2 === 0));
-    process.stdout.write(`\nJEV_H2H ${JSON.stringify(games)}\n`);
+    for (let game = 0; game < GAMES; game++) games.push(await headToHead(sides(), game % 2 === 0));
+    process.stdout.write(`\nJEV_H2H ${name} ${JSON.stringify(games)}\n`);
     const points = games.reduce((sum, g) => sum + (g.result === "win" ? 100 : g.result === "loss" ? -100 : g.material), 0);
     expect(points).toBeGreaterThan(0);
   });

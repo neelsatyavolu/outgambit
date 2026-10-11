@@ -1,5 +1,6 @@
 import { describeMove, textBoard } from "../chess/describe";
 import type { LegalMove } from "../chess/rules";
+import { NOTE, WINNING_LEAD, survey, type Phase } from "../chess/notes";
 import { assessMoves, shortlist } from "../chess/tactics";
 import { numberedMoves } from "./prompt";
 import { errorName, providerError } from "./result";
@@ -15,7 +16,15 @@ import type { Adapter, MoveRequest } from "./types";
  */
 export type DecisionOption = { key: string; description: string };
 
-export type DecisionState = { side_to_move: string; board: string; position_fen: string; moves_so_far: string };
+export type DecisionState = {
+  side_to_move: string;
+  phase: string;
+  /** Who is ahead in material and by how much, or "level". */
+  material: string;
+  board: string;
+  position_fen: string;
+  last_moves: string;
+};
 
 export type DecisionQuery = {
   model: string;
@@ -47,25 +56,89 @@ export type DecisionOptions = {
   rng?: () => number;
   /** Off only for measuring how a model plays on its own. */
   assist?: boolean;
+  /** Off only for measuring what telling the model about each move adds. */
+  notes?: boolean;
 };
 
-const CENTRE = new Set(["d4", "e4", "d5", "e5"]);
-const OPENING_PLIES = 20;
-const EARLY_QUEEN_PLIES = 12;
+const QUESTION = "Which option is the best chess move for `side_to_move` in the position shown in `board`?";
+const SAFE = "Every option is already safe from losing material at once.";
 
+/** The one piece of advice for every position, for when the options say nothing about what they do. */
 export const INSTRUCTIONS = {
-  question: "Which option is the best chess move for `side_to_move` in the position shown in `board`?",
+  question: QUESTION,
   guidance:
     "In the opening, develop knights and bishops, claim the centre with pawns, castle early, and do not bring the " +
-    "queen out early or move the king. Later, prefer moves that give check, capture, create threats, or bring a " +
-    "piece to a more active square. Every option is already safe from losing material at once.",
+    `queen out early or move the king. Later, prefer moves that give check, capture, create threats, or bring a piece to a more active square. ${SAFE}`,
 };
+
+const TACTICS = "Prefer an option that threatens checkmate, forks two pieces, or attacks a piece.";
+const ADVICE: Record<Phase, string> = {
+  opening:
+    "This is the opening: otherwise develop knights and bishops, claim the centre with pawns and castle early. Do " +
+    "not bring the queen out early, move the king, or move a piece that is already developed.",
+  middlegame:
+    "This is the middlegame: otherwise give check or capture, or bring a piece to a more active square, such as a " +
+    "rook to an open file. Keep the king safe.",
+  endgame:
+    "This is the endgame: otherwise advance passed pawns toward promotion, bring the king toward the centre, and " +
+    "put a rook on an open file or the seventh rank.",
+};
+const WINNING =
+  "Your side is winning, so finish the game: leave the enemy king fewer squares, bring your king closer to it, and " +
+  "promote a pawn if you can.";
+const DRAWS = "Pick an option that draws the game at once only if your side is behind.";
+const REPEATS = "Avoid an option that repeats an earlier position unless your side is behind: repeating draws the game.";
+const TRADE_AHEAD = "Your side is ahead, so an even trade helps.";
+const TRADE_BEHIND = "Your side is behind, so avoid an even trade.";
+
+/**
+ * The question, with advice written in the words the options use. Every word
+ * here is paid for twice on every call, so advice about one kind of move is
+ * only given when an option on the list, by its `noted`, is that kind.
+ */
+export function instructionsFor(phase: Phase, lead = 0, noted: readonly string[] = []): DecisionQuery["instructions"] {
+  const said = (note: string) => noted.includes(note);
+  const trades = said(NOTE.trade) && lead !== 0 ? (lead > 0 ? TRADE_AHEAD : TRADE_BEHIND) : null;
+  const advice = [
+    TACTICS,
+    ADVICE[phase],
+    lead >= WINNING_LEAD ? WINNING : null,
+    said(NOTE.draws) ? DRAWS : null,
+    said(NOTE.repeats) ? REPEATS : null,
+    trades,
+    SAFE,
+  ];
+  return { question: QUESTION, guidance: advice.filter((line) => line !== null).join(" ") };
+}
+
+const RECENT_PLIES = 10;
+
+/**
+ * The last few moves, numbered. The whole game would cost more on every call
+ * the longer it ran, and these models do not use it: what matters about the
+ * past, a position coming round again, is said in the options.
+ */
+function lastMoves(history: readonly string[]): string {
+  if (history.length <= RECENT_PLIES) return numberedMoves(history);
+  // Start on a move by white, so the numbering reads as it would in full.
+  const start = history.length - RECENT_PLIES - ((history.length - RECENT_PLIES) % 2);
+  const numbered = history.slice(start).map((san, i) => ((start + i) % 2 === 0 ? `${(start + i) / 2 + 1}. ${san}` : san));
+  return `... ${numbered.join(" ")}`;
+}
+
+function materialText(lead: number, mover: MoveRequest["color"]): string {
+  if (lead === 0) return "level";
+  const ahead = lead > 0 ? mover : mover === "white" ? "black" : "white";
+  return `${ahead} is ahead by ${Math.abs(lead)} (pawn 1, knight or bishop 3, rook 5, queen 9)`;
+}
 
 /** The state as plain text, for providers that take a string. */
 export function stateText(state: DecisionState): string {
   return [
     `Side to move: ${state.side_to_move}`,
-    `Moves so far: ${state.moves_so_far}`,
+    `Phase: ${state.phase}`,
+    `Material: ${state.material}`,
+    `Last moves: ${state.last_moves}`,
     `Position (FEN): ${state.position_fen}`,
     "Board (white at the bottom, capitals are white):",
     state.board,
@@ -87,23 +160,9 @@ function shuffled<T>(items: readonly T[], rng: () => number): T[] {
 }
 
 // These models read descriptions literally and do not work things out from
-// the board, so what a move does for the position is stated in the option.
-function positionalNote(move: LegalMove, color: MoveRequest["color"], ply: number): string | null {
-  const homeRank = color === "white" ? "1" : "8";
-  if ((move.piece === "n" || move.piece === "b") && move.from[1] === homeRank && ply < OPENING_PLIES) {
-    return "develops a piece";
-  }
-  if (move.piece === "p" && CENTRE.has(move.to)) return "claims the centre";
-  if (move.piece === "q" && ply < EARLY_QUEEN_PLIES) return "brings the queen out early";
-  if (move.piece === "k" && !move.san.startsWith("O-O") && move.from === `e${homeRank}`) {
-    return "moves the king off its home square";
-  }
-  return null;
-}
-
-function option(move: LegalMove, request: MoveRequest): DecisionOption {
-  const note = positionalNote(move, request.color, request.history.length);
-  return { key: move.uci, description: note ? `${describeMove(move)}, ${note}` : describeMove(move) };
+// the board, so what a move does is stated in the option.
+function option(move: LegalMove, notes: readonly string[] = []): DecisionOption {
+  return { key: move.uci, description: [describeMove(move), ...notes].join(", ") };
 }
 
 /** The option with the most combined support, or the stated choice when no probabilities came back. */
@@ -120,17 +179,20 @@ function strongest(answers: readonly DecisionAnswer[]): string | null {
 // These models lean toward the first option listed, so the same question is
 // asked twice in one request with the options in opposite orders, and the
 // two sets of probabilities are added together.
-function buildQuery(request: MoveRequest, moves: readonly LegalMove[], rng: () => number): DecisionQuery {
-  const first = shuffled(moves, rng).map((m) => option(m, request));
+function buildQuery(request: MoveRequest, moves: readonly LegalMove[], rng: () => number, notes: boolean): DecisionQuery {
+  const view = survey(request.history, notes ? moves.map((m) => m.uci) : []);
+  const first = shuffled(moves, rng).map((m) => option(m, view.notes.get(m.uci)));
   return {
     model: request.model,
     state: {
       side_to_move: request.color,
+      phase: view.phase,
+      material: materialText(view.lead, request.color),
       board: textBoard(request.fen),
       position_fen: request.fen,
-      moves_so_far: numberedMoves(request.history),
+      last_moves: lastMoves(request.history),
     },
-    instructions: INSTRUCTIONS,
+    instructions: notes ? instructionsFor(view.phase, view.lead, [...view.notes.values()].flat()) : INSTRUCTIONS,
     orderings: [first, [...first].reverse()],
     signal: request.signal,
   };
@@ -144,7 +206,7 @@ export function decisionAdapter(decide: Decider, options: DecisionOptions = {}):
     // With one sound move there is nothing to ask.
     if (options.assist !== false && moves.length === 1) return { kind: "move", san: moves[0].san };
     try {
-      const outcome = await decide(buildQuery(request, moves, rng));
+      const outcome = await decide(buildQuery(request, moves, rng, options.notes !== false));
       if ("error" in outcome) return providerError(outcome.error);
       const { inputTokens } = outcome;
       const chosen = strongest(outcome.answers);

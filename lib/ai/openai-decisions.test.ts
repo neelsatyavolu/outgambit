@@ -33,7 +33,7 @@ describe("openAiDecisionsAdapter", () => {
     const input = calls[0].body.input as string;
     expect(input).toContain("Side to move: black");
     expect(input).toContain("8 r n b q k b n r");
-    expect(input).toContain("Moves so far: 1. e4");
+    expect(input).toContain("Last moves: 1. e4");
   });
 
   it("plays the move with the most support across both orderings", async () => {

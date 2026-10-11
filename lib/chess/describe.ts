@@ -1,6 +1,6 @@
 import type { LegalMove } from "./rules";
 
-const PIECE_NAMES: Record<string, string> = {
+export const PIECE_NAMES: Record<string, string> = {
   p: "pawn",
   n: "knight",
   b: "bishop",
