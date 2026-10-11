@@ -58,6 +58,17 @@ export async function getUser(q: Queryable, id: string, lock = false): Promise<U
   return rows[0] ? rowToUser(rows[0]) : null;
 }
 
+/** The version a session must have been made at to still count, or null when there is no such account. */
+export async function sessionVersionOf(q: Queryable, id: string): Promise<number | null> {
+  const [row] = await q.query<{ session_version: number }>("SELECT session_version FROM users WHERE id = $1", [id]);
+  return row?.session_version ?? null;
+}
+
+/** Stores a new password, and ends every session made under the old one. */
+export async function replacePassword(q: Queryable, id: string, passwordHash: string): Promise<void> {
+  await q.query("UPDATE users SET password_hash = $2, session_version = session_version + 1 WHERE id = $1", [id, passwordHash]);
+}
+
 /**
  * Sets a player's starting ratings. Only possible before their first rated
  * game: after that, ratings change by playing, not by editing.

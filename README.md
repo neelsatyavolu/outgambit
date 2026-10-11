@@ -18,6 +18,10 @@ pnpm dev
 nothing needs provisioning. Add `GAMBIT_FAKE_AI=1` to `.env.local` to get a
 scripted test opponent that needs no keys. That switch is ignored in production.
 
+No mail account is needed either: without `RESEND_API_KEY`, a password reset
+link is written to the server's console instead of being emailed. Set `APP_URL`
+if the site is not at `http://localhost:3000`, since reset links are built on it.
+
 ## Owner setup
 
 Open `/owner` and sign in with `OWNER_PASSWORD`.
@@ -38,8 +42,18 @@ Open `/owner` and sign in with `OWNER_PASSWORD`.
 
 Signing in is optional. A visitor can create an account at `/account` with an
 email and a password to keep their stats and game history across browsers; the
-games already played in that browser move to the account. Gambit sends no email,
-so addresses are not verified and there is no password reset.
+games already played in that browser move to the account. Addresses are not
+verified when an account is made.
+
+A player who forgets their password asks for a reset link at `/account/forgot`.
+The link is emailed through [Resend](https://resend.com) from
+`Gambit <no-reply@n3el.dev>`, works once, and expires in an hour. Setting the new
+password signs the account out of every other browser. The form answers the same
+way whether or not the address has an account. One address is sent at most three
+links an hour, and the whole site sends at most 50 a day (Resend's free plan
+allows 100, shared with other apps); past either limit nothing is sent and the
+answer does not change. The limits are in `app/api/account/forgot/route.ts`, and
+the email's layout in `lib/mail/template.ts`.
 
 Sessions are signed with `SECRETS_KEY`, so changing it signs every player out.
 
@@ -117,7 +131,12 @@ database `gambit-db`). The project is connected to this repository: a push
 to `main` deploys to production.
 
 Vercel with a Neon Postgres database. Set `DATABASE_URL`, `OWNER_PASSWORD`,
-`SECRETS_KEY` and `IP_SALT`, using Neon's pooled connection string. Tables are
+`SECRETS_KEY`, `IP_SALT`, `RESEND_API_KEY` and `APP_URL`, using Neon's pooled
+connection string. The server refuses to start in production without all six,
+and Vercel's preview deployments count as production. `RESEND_API_KEY` is a
+Resend key allowed to send from `n3el.dev`, which must be a verified domain
+there. `APP_URL` is the site's public address, `https://outgambit.n3el.dev`:
+reset links are built on it and never on a request's Host header. Tables are
 created on first use. Slow models think after the response is sent, inside a
 300-second function limit; a turn that needs longer is picked up by the next
 poll. Limits by network rely on the `x-forwarded-for` header Vercel sets.

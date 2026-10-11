@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { MIN_PASSWORD_LENGTH } from "@/lib/account/input";
@@ -83,10 +84,15 @@ export function AccountForm() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
-        {mode === "register" && (
+        {mode === "register" ? (
           <span className="muted">
-            At least {MIN_PASSWORD_LENGTH} characters. There is no password reset, so keep it somewhere safe.
+            At least {MIN_PASSWORD_LENGTH} characters. If you forget it, a reset link goes to this email, so use one you
+            can read.
           </span>
+        ) : (
+          <Link className="muted" href="/account/forgot" style={{ alignSelf: "flex-start", textDecoration: "underline" }}>
+            Forgot password?
+          </Link>
         )}
         {registering && (
           <div style={{ marginTop: 16 }}>

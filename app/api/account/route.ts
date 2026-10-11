@@ -12,7 +12,11 @@ const SHOWN = 100;
 
 export async function GET() {
   const id = await accountId();
-  if (!id) return fail("Sign in first.", 401);
+  if (!id) {
+    // Drops a session that has ended, or whose account is gone, along with the refusal.
+    (await cookies()).delete(ACCOUNT_COOKIE);
+    return fail("Sign in first.", 401);
+  }
   const db = await getDb();
   // Close out games that ran out of time with nobody watching, and rate anything newly finished.
   await expireOverdue(db, Date.now());

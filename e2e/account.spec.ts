@@ -76,3 +76,32 @@ test("an email cannot be registered twice", async ({ page, browser }) => {
   await submit(second, "Create account", email);
   await expect(second.getByText("That email already has an account. Sign in instead.")).toBeVisible();
 });
+
+test("a player who forgot their password is told a reset link is on its way", async ({ page }) => {
+  await page.goto("/account");
+  await page.getByRole("link", { name: "Forgot password?" }).click();
+  await page.waitForURL(/\/account\/forgot$/);
+  // No account is made for this: one network may only make five an hour, and the other specs use them.
+  // The answer is the same for an address nobody registered, which is the point of it.
+  await page.getByLabel("Email").fill(`hedy-${Date.now()}@example.com`);
+  await page.getByRole("button", { name: "Send reset link" }).click();
+  await expect(page.getByText("If an account exists for that address, a reset link is on its way.")).toBeVisible();
+  await expect(page.getByLabel("Email")).toHaveCount(0);
+  await page.getByRole("link", { name: "Back to sign in" }).click();
+  await page.waitForURL(/\/account$/);
+});
+
+test("a reset link that is missing or wrong says so and offers a new one", async ({ page }) => {
+  const dead = page.getByText("This reset link is no longer valid. Request a new one.");
+  await page.goto("/account/reset");
+  await expect(dead).toBeVisible();
+
+  await page.goto("/account/reset?token=not-a-token-anyone-was-sent");
+  // The token is in the address, so the page must not pass its address on to anywhere it links or loads from.
+  await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
+  await page.getByLabel("New password").fill(PASSWORD);
+  await page.getByRole("button", { name: "Set password" }).click();
+  await expect(dead).toBeVisible();
+  await page.getByRole("link", { name: "Request a new link" }).click();
+  await page.waitForURL(/\/account\/forgot$/);
+});

@@ -2,10 +2,10 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { Db, Queryable } from "../db/client";
 import { claimGames } from "../db/games";
-import { findUserByEmail, insertUser, setSkill, type SkillRecord } from "../db/users";
+import { findUserByEmail, insertUser, sessionVersionOf, setSkill, type SkillRecord } from "../db/users";
 import { startingRatings, type Skill } from "../rating/elo";
 import { hashPassword, verifyPassword } from "./password";
-import { accountPlayerId } from "./session";
+import { accountPlayerId, accountSessionOf } from "./session";
 
 /** `guestId` is the anonymous id this browser has been playing under, if it has one. */
 type Credentials = { email: string; password: string; guestId: string | undefined };
@@ -42,4 +42,16 @@ export async function signIn(q: Queryable, input: Credentials): Promise<string |
   if (!user || !(await verifyPassword(input.password, user.passwordHash))) return null;
   if (input.guestId) await claimGames(q, input.guestId, accountPlayerId(user.id));
   return user.id;
+}
+
+/**
+ * The account a session is for, or null. A session is a signed token and
+ * would outlive what it was for, so it is checked against the account: it is
+ * nobody's once the account is gone, or has ended its sessions (a password
+ * reset) since this one was made. One read, by primary key.
+ */
+export async function accountIn(q: Queryable, token: string | undefined, now: number): Promise<string | null> {
+  const session = accountSessionOf(token, now);
+  if (!session) return null;
+  return (await sessionVersionOf(q, session.userId)) === session.version ? session.userId : null;
 }

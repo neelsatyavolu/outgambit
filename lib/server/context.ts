@@ -2,12 +2,12 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { after } from "next/server";
-import {
-  ACCOUNT_COOKIE, ACCOUNT_TTL_MS, accountOf, accountPlayerId, createAccountSession,
-} from "../account/session";
+import { accountIn } from "../account/accounts";
+import { ACCOUNT_COOKIE, ACCOUNT_TTL_MS, accountPlayerId, createAccountSession } from "../account/session";
 import { getAdapter } from "../ai/registry";
 import { usageSource } from "../budget/sources";
 import { getDb } from "../db/client";
+import { sessionVersionOf } from "../db/users";
 import type { Deps } from "../game/deps";
 import { clientIp, fail, hashIp, isPlayerId, sameOrigin } from "../http";
 import { findOffered } from "../owner/catalog";
@@ -39,10 +39,15 @@ export async function buildDeps(): Promise<Deps> {
   };
 }
 
+/** The account a session cookie is live for. A browser with no cookie costs no database read. */
+async function accountBehind(token: string | undefined): Promise<string | null> {
+  return token ? accountIn(await getDb(), token, Date.now()) : null;
+}
+
 /** The signed-in account's user id, or null for a guest. */
 export async function accountId(): Promise<string | null> {
   const jar = await cookies();
-  return accountOf(jar.get(ACCOUNT_COOKIE)?.value, Date.now());
+  return accountBehind(jar.get(ACCOUNT_COOKIE)?.value);
 }
 
 /** The anonymous id this browser has played under, whether or not it is signed in. */
@@ -51,9 +56,11 @@ export async function guestId(): Promise<string | undefined> {
   return isPlayerId(value) ? value : undefined;
 }
 
-/** Signs this browser in to an account. */
+/** Signs this browser in to an account, at the session version the account is at now. */
 export async function startAccountSession(userId: string): Promise<void> {
-  (await cookies()).set(ACCOUNT_COOKIE, createAccountSession(userId, Date.now()), {
+  const version = await sessionVersionOf(await getDb(), userId);
+  if (version === null) throw new Error("Cannot sign in to an account that does not exist");
+  (await cookies()).set(ACCOUNT_COOKIE, createAccountSession(userId, Date.now(), version), {
     httpOnly: true,
     sameSite: "lax",
     secure: secureCookies(),
@@ -68,7 +75,7 @@ export async function startAccountSession(userId: string): Promise<void> {
  */
 export async function playerId(options: { create: boolean }): Promise<string | undefined> {
   const jar = await cookies();
-  const account = accountOf(jar.get(ACCOUNT_COOKIE)?.value, Date.now());
+  const account = await accountBehind(jar.get(ACCOUNT_COOKIE)?.value);
   if (account) return accountPlayerId(account);
   const existing = jar.get(PLAYER_COOKIE)?.value;
   if (isPlayerId(existing)) return existing;

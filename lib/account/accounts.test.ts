@@ -5,8 +5,9 @@ import { makeGame, NOON } from "@/test/factory";
 import type { Db } from "../db/client";
 import { getGame, insertGame } from "../db/games";
 import { findUserByEmail } from "../db/users";
-import { register, signIn } from "./accounts";
-import { accountPlayerId } from "./session";
+import { sign } from "../owner/crypto";
+import { accountIn, register, signIn } from "./accounts";
+import { accountPlayerId, createAccountSession } from "./session";
 
 let db: Db;
 beforeAll(async () => {
@@ -104,5 +105,40 @@ describe("signIn", () => {
     await insertGame(db, game);
     await signIn(db, { ...details, password: "wrong password" });
     expect((await getGame(db, game.id))!.playerId).toBe(GUEST);
+  });
+});
+
+describe("accountIn", () => {
+  it("names the account a live session is for", async () => {
+    const id = await register(db, details);
+    expect(await accountIn(db, createAccountSession(id!, NOON, 0), NOON)).toBe(id);
+  });
+
+  it("still honours a session made before sessions carried a version", async () => {
+    const id = await register(db, details);
+    expect(await accountIn(db, sign(`account.${id}.${NOON + 60_000}`), NOON)).toBe(id);
+  });
+
+  it("refuses a session made at another version than the account is at now", async () => {
+    const id = await register(db, details);
+    expect(await accountIn(db, createAccountSession(id!, NOON, 1), NOON)).toBeNull();
+    await db.query("UPDATE users SET session_version = 2 WHERE id = $1", [id]);
+    expect(await accountIn(db, createAccountSession(id!, NOON, 0), NOON)).toBeNull();
+    expect(await accountIn(db, createAccountSession(id!, NOON, 1), NOON)).toBeNull();
+    expect(await accountIn(db, createAccountSession(id!, NOON, 2), NOON)).toBe(id);
+  });
+
+  it("refuses a session whose account is gone, a forged one, and none at all", async () => {
+    const id = await register(db, details);
+    const token = createAccountSession(id!, NOON, 0);
+    expect(await accountIn(db, `${token}x`, NOON)).toBeNull();
+    expect(await accountIn(db, undefined, NOON)).toBeNull();
+    await db.query("DELETE FROM users WHERE id = $1", [id]);
+    expect(await accountIn(db, token, NOON)).toBeNull();
+  });
+
+  it("asks the database nothing about a token that is not a sound session", async () => {
+    const unreachable = { query: () => Promise.reject(new Error("should not be asked")) };
+    expect(await accountIn(unreachable, "account.forged", NOON)).toBeNull();
   });
 });

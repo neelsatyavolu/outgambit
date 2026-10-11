@@ -21,7 +21,7 @@ async function isolatedSchema(url: string): Promise<Db> {
 }
 
 export async function resetDb(db: Db): Promise<void> {
-  await db.query("TRUNCATE games, moves, connections, models, rate_limits, users, model_ratings, settings, usage");
+  await db.query("TRUNCATE games, moves, connections, models, rate_limits, users, model_ratings, settings, usage, password_resets");
 }
 
 /**

@@ -102,6 +102,15 @@ const STATEMENTS = [
     input_tokens integer NOT NULL DEFAULT 0,
     PRIMARY KEY (day, provider, model)
   )`,
+  // Raised to end every session an account has: a session is honoured only at the version it was made at.
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version integer NOT NULL DEFAULT 0`,
+  // Password reset links that have been sent and not yet used. Only a hash of each link's token is kept.
+  `CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash text PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
 ];
 
 /** Creates any missing tables and columns. Safe to run on every start. */

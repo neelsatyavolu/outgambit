@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ACCOUNT_COOKIE } from "@/lib/account/session";
+import { sign } from "@/lib/owner/crypto";
 import { OWNER_COOKIE, createSession } from "@/lib/owner/session";
 import { PLAYER_COOKIE } from "@/lib/server/context";
 
@@ -68,6 +69,8 @@ const WRITE_ROUTES: Route[] = [
   { name: "register", method: "POST", path: "/api/account/register", load: () => import("./account/register/route") },
   { name: "account login", method: "POST", path: "/api/account/login", load: () => import("./account/login/route") },
   { name: "account logout", method: "POST", path: "/api/account/logout", load: () => import("./account/logout/route") },
+  { name: "forgot password", method: "POST", path: "/api/account/forgot", load: () => import("./account/forgot/route") },
+  { name: "reset password", method: "POST", path: "/api/account/reset", load: () => import("./account/reset/route") },
 ];
 
 async function call(route: Route, options: Parameters<typeof request>[2] = {}): Promise<Response> {
@@ -472,5 +475,292 @@ describe("accounts", () => {
     expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
     expect((await view(gameId)).status).toBe(404);
     expect((await account()).status).toBe(401);
+  });
+});
+
+describe("password reset", () => {
+  const APP_URL = process.env.APP_URL!;
+  const NEW_PASSWORD = "a brand new password";
+  const SENT = { success: true, data: { message: "If an account exists for that address, a reset link is on its way." } };
+  const DEAD_LINK = { success: false, error: "This reset link is no longer valid. Request a new one." };
+
+  // Resend is the one thing replaced: what the handlers post to it is kept, and it answers as told.
+  type Sent = { to: string; from: string; subject: string; link: string; authorization: string };
+  let outbox: Sent[] = [];
+  let resend: () => Promise<Response>;
+  const accepting = async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 });
+
+  const db = async () => (await import("@/lib/db/client")).getDb();
+  const forgot = async (body: unknown, ip = "198.51.100.60") =>
+    (await import("./account/forgot/route")).POST(request("POST", "/api/account/forgot", { body, ip }));
+  const reset = async (body: unknown, ip = "198.51.100.60") =>
+    (await import("./account/reset/route")).POST(request("POST", "/api/account/reset", { body, ip }));
+  const login = async (body: unknown, ip = "198.51.100.60") =>
+    (await import("./account/login/route")).POST(request("POST", "/api/account/login", { body, ip }));
+  const account = async () => (await import("./account/route")).GET();
+  const tokenIn = (link: string) => new URL(link).searchParams.get("token")!;
+
+  /** Registers an account from a browser that then goes away. */
+  async function joined(ip = "198.51.100.61") {
+    const player = someone();
+    expect((await register(player, ip)).status).toBe(201);
+    jar.clear();
+    return player;
+  }
+
+  /** Asks for a reset link and returns the token from the email that went out. */
+  async function emailedToken(email: string, ip?: string): Promise<string> {
+    const before = outbox.length;
+    expect((await forgot({ email }, ip)).status).toBe(200);
+    expect(outbox).toHaveLength(before + 1);
+    return tokenIn(outbox[before].link);
+  }
+
+  beforeEach(async () => {
+    outbox = [];
+    resend = accepting;
+    vi.stubGlobal("fetch", async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url) !== "https://api.resend.com/emails") throw new Error(`Unexpected request to ${String(url)}`);
+      const response = await resend();
+      if (!response.ok) return response;
+      const mail = JSON.parse(init!.body as string);
+      const authorization = (init!.headers as Record<string, string>).Authorization;
+      outbox.push({ to: mail.to[0], from: mail.from, subject: mail.subject, link: mail.text.match(/https?:\/\/\S+/)[0], authorization });
+      return response;
+    });
+    // Limits are counted per address and for the whole app, so each test starts with none used.
+    await (await db()).query("TRUNCATE rate_limits");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("emails a link that sets a new password and signs the browser in", async () => {
+    const ada = await joined();
+    expect(await (await forgot({ email: ada.email })).json()).toEqual(SENT);
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0]).toMatchObject({
+      to: ada.email,
+      from: "Gambit <no-reply@n3el.dev>",
+      subject: "Reset your Gambit password",
+      authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+    });
+    expect(outbox[0].link).toMatch(new RegExp(`^${APP_URL}/account/reset\\?token=[A-Za-z0-9_-]{43}$`));
+
+    const response = await reset({ token: tokenIn(outbox[0].link), password: NEW_PASSWORD });
+    expect(response.status).toBe(200);
+    expect(jar.get(ACCOUNT_COOKIE)?.options).toMatchObject({ httpOnly: true, sameSite: "lax", path: "/" });
+    expect((await (await account()).json()).data.email).toBe(ada.email);
+
+    jar.clear();
+    expect((await login(ada)).status).toBe(401);
+    expect((await login({ ...ada, password: NEW_PASSWORD })).status).toBe(200);
+  });
+
+  it("answers an address with no account exactly as it answers one with, and sends nothing", async () => {
+    const ada = await joined();
+    const known = await forgot({ email: ada.email });
+    const unknown = await forgot(someone());
+    expect(unknown.status).toBe(known.status);
+    expect(await unknown.json()).toEqual(await known.json());
+    expect(outbox.map((mail) => mail.to)).toEqual([ada.email]);
+    expect(await (await db()).query("SELECT 1 FROM password_resets")).toHaveLength(1);
+  });
+
+  it("finds the account however the address is typed", async () => {
+    const ada = await joined();
+    expect((await forgot({ email: `  ${ada.email.toUpperCase()} ` })).status).toBe(200);
+    expect(outbox.map((mail) => mail.to)).toEqual([ada.email]);
+  });
+
+  it("refuses a request with no valid email in it", async () => {
+    for (const body of [{}, { email: "not-an-email" }, { email: 7 }]) expect((await forgot(body)).status).toBe(400);
+    expect(outbox).toEqual([]);
+  });
+
+  it("builds the link on the site's own address, whatever host the request claims", async () => {
+    const ada = await joined();
+    const { POST } = await import("./account/forgot/route");
+    const forged = new Request("https://evil.test/api/account/forgot", {
+      method: "POST",
+      headers: {
+        host: "evil.test",
+        "x-forwarded-host": "evil.test",
+        "x-forwarded-proto": "https",
+        origin: "https://evil.test",
+        "x-forwarded-for": "198.51.100.62",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ email: ada.email }),
+    });
+    expect((await POST(forged)).status).toBe(200);
+    expect(outbox).toHaveLength(1);
+    expect(new URL(outbox[0].link).origin).toBe(APP_URL);
+    expect(outbox[0].link).not.toContain("evil.test");
+  });
+
+  it("ends every session the account had before the reset", async () => {
+    const ada = someone();
+    await register(ada, "198.51.100.63");
+    const stolen = jar.get(ACCOUNT_COOKIE)!;
+    const userId = stolen.value.split(".")[1];
+    // A session made before sessions carried a version, as browsers signed in before this change hold.
+    const legacy = { value: sign(`account.${userId}.${Date.now() + 60_000}`) };
+    const gameId = await startGame("198.51.100.63");
+    jar.set(ACCOUNT_COOKIE, legacy);
+    expect((await account()).status).toBe(200);
+    expect((await view(gameId)).status).toBe(200);
+
+    jar.clear();
+    expect((await reset({ token: await emailedToken(ada.email), password: NEW_PASSWORD })).status).toBe(200);
+    const fresh = jar.get(ACCOUNT_COOKIE)!;
+    expect(fresh.value).not.toBe(stolen.value);
+
+    for (const old of [stolen, legacy]) {
+      jar.clear();
+      jar.set(ACCOUNT_COOKIE, old);
+      expect((await view(gameId)).status).toBe(404);
+      expect((await move(gameId, { move: "e2e4", ply: 0 })).status).toBe(404);
+      expect((await account()).status).toBe(401);
+      expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
+    }
+
+    jar.set(ACCOUNT_COOKIE, fresh);
+    expect((await account()).status).toBe(200);
+    expect((await view(gameId)).status).toBe(200);
+  });
+
+  it("lets a link be used once", async () => {
+    const ada = await joined();
+    const token = await emailedToken(ada.email);
+    expect((await reset({ token, password: NEW_PASSWORD })).status).toBe(200);
+    jar.clear();
+    const again = await reset({ token, password: "yet another password" });
+    expect(again.status).toBe(400);
+    expect(await again.json()).toEqual(DEAD_LINK);
+    expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
+    expect((await login({ ...ada, password: NEW_PASSWORD })).status).toBe(200);
+  });
+
+  it("honours only the newest link an account was sent", async () => {
+    const ada = await joined();
+    const first = await emailedToken(ada.email);
+    const second = await emailedToken(ada.email);
+    expect(await (await reset({ token: first, password: NEW_PASSWORD })).json()).toEqual(DEAD_LINK);
+    expect((await reset({ token: second, password: NEW_PASSWORD })).status).toBe(200);
+  });
+
+  it("refuses a link an hour old", async () => {
+    const ada = await joined();
+    const token = await emailedToken(ada.email);
+    await (await db()).query("UPDATE password_resets SET expires_at = now() - interval '1 second'");
+    const response = await reset({ token, password: NEW_PASSWORD });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual(DEAD_LINK);
+    expect((await login(ada)).status).toBe(200);
+  });
+
+  it.each([
+    { name: "a made-up token", token: "x".repeat(43) },
+    { name: "an empty token", token: "" },
+    { name: "no token", token: undefined },
+    { name: "a token that is not text", token: 7 },
+    { name: "an absurdly long token", token: "x".repeat(5_000) },
+  ])("answers $name the same way as any dead link", async ({ token }) => {
+    const response = await reset({ token, password: NEW_PASSWORD });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual(DEAD_LINK);
+    expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
+  });
+
+  it("refuses a weak password and leaves the link usable", async () => {
+    const ada = await joined();
+    const token = await emailedToken(ada.email);
+    for (const password of ["1234567", "", undefined, "x".repeat(201)]) {
+      const response = await reset({ token, password });
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toBe("Choose a password of at least 8 characters.");
+    }
+    expect(jar.has(ACCOUNT_COOKIE)).toBe(false);
+    expect((await login(ada)).status).toBe(200);
+    jar.clear();
+    expect((await reset({ token, password: NEW_PASSWORD })).status).toBe(200);
+  });
+
+  it("stops an address asking for links after five tries in fifteen minutes", async () => {
+    const ada = await joined();
+    for (let i = 0; i < 5; i++) expect((await forgot(someone(), "198.51.100.64")).status).toBe(200);
+    const response = await forgot({ email: ada.email }, "198.51.100.64");
+    expect(response.status).toBe(429);
+    expect(outbox).toEqual([]);
+  });
+
+  it("sends one address three links an hour, and says nothing when it stops", async () => {
+    const ada = await joined();
+    for (let i = 0; i < 3; i++) await emailedToken(ada.email, `203.0.113.${i}`);
+    const newest = tokenIn(outbox[2].link);
+    const fourth = await forgot({ email: ada.email }, "203.0.113.3");
+    expect(fourth.status).toBe(200);
+    expect(await fourth.json()).toEqual(SENT);
+    expect(outbox).toHaveLength(3);
+    // The link already sent is not thrown away by the request that was not answered.
+    expect((await reset({ token: newest, password: NEW_PASSWORD })).status).toBe(200);
+  });
+
+  it("sends fifty links a day across everyone, and says nothing when it stops", async () => {
+    const { insertUser } = await import("@/lib/db/users");
+    const emails = Array.from({ length: 51 }, () => `${randomUUID()}@example.com`);
+    for (const email of emails) {
+      await insertUser(await db(), { id: randomUUID(), email, passwordHash: "unusable", createdAt: Date.now() });
+    }
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    for (const [i, email] of emails.entries()) {
+      const response = await forgot({ email }, `203.0.113.${100 + i}`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(SENT);
+    }
+    expect(outbox.map((mail) => mail.to)).toEqual(emails.slice(0, 50));
+    expect(quiet).toHaveBeenCalledTimes(1);
+    // The one that was not emailed was not given a link either.
+    const unsent = "SELECT 1 FROM password_resets WHERE user_id = (SELECT id FROM users WHERE email = $1)";
+    expect(await (await db()).query(unsent, [emails[49]])).toHaveLength(1);
+    expect(await (await db()).query(unsent, [emails[50]])).toEqual([]);
+  });
+
+  it("does not count requests for addresses with no account against the daily allowance", async () => {
+    for (let i = 0; i < 60; i++) expect((await forgot(someone(), `203.0.113.${i}`)).status).toBe(200);
+    const ada = await joined();
+    await emailedToken(ada.email);
+  });
+
+  it("stops an address trying links after ten tries in fifteen minutes, even with a good one", async () => {
+    const ada = await joined();
+    const token = await emailedToken(ada.email);
+    for (let i = 0; i < 10; i++) expect((await reset({ token: `guess-${i}`, password: NEW_PASSWORD }, "198.51.100.65")).status).toBe(400);
+    expect((await reset({ token, password: NEW_PASSWORD }, "198.51.100.65")).status).toBe(429);
+    expect((await reset({ token, password: NEW_PASSWORD }, "198.51.100.66")).status).toBe(200);
+  });
+
+  it.each([
+    { name: "Resend refuses the email", answer: async () => new Response("{}", { status: 500 }) },
+    { name: "Resend cannot be reached", answer: async () => Promise.reject(new TypeError("fetch failed")) },
+  ])("says the email could not be sent when $name, and logs why without the key or the link", async ({ answer }) => {
+    const ada = await joined();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    resend = answer;
+    const response = await forgot({ email: ada.email });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ success: false, error: "The reset email could not be sent. Try again later." });
+    expect(logged).toHaveBeenCalledTimes(1);
+    const [row] = await (await db()).query<{ token_hash: string }>("SELECT token_hash FROM password_resets");
+    const log = JSON.stringify(logged.mock.calls);
+    expect(log).not.toContain(process.env.RESEND_API_KEY);
+    expect(log).not.toContain("token");
+    expect(log).not.toContain(row.token_hash);
+    expect(log).not.toContain(ada.email);
+
+    resend = accepting;
+    expect((await reset({ token: await emailedToken(ada.email), password: NEW_PASSWORD })).status).toBe(200);
   });
 });

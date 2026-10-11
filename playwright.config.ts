@@ -9,6 +9,8 @@ const env = {
   OWNER_PASSWORD: "e2e-owner-password",
   SECRETS_KEY: Buffer.alloc(32, 5).toString("base64"),
   IP_SALT: "e2e-salt-0123456789",
+  // No RESEND_API_KEY: outside production a reset link is written to the server's console, not emailed.
+  APP_URL: `http://localhost:${PORT}`,
   GAMBIT_FAKE_AI: "1",
   GAMBIT_FAKE_SCRIPT: "e5,Qh4#",
 };
