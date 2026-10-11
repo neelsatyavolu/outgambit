@@ -147,8 +147,8 @@ button calls the queue off. The rules are in `lib/chess/premove.ts`.
 ## Deploying
 
 Live at https://outgambit.n3el.dev (Vercel project `gambit`, Neon
-database `gambit-db`). There is no Git integration; ship a change with
-`vercel deploy --prod` from this folder.
+database `gambit-db`). The project is connected to this repository: a push
+to `main` deploys to production.
 
 Vercel with a Neon Postgres database. Set `DATABASE_URL`, `OWNER_PASSWORD`,
 `SECRETS_KEY` and `IP_SALT`, using Neon's pooled connection string. Tables are
