@@ -16,9 +16,7 @@ export type Reason =
   | "timeout"
   | "resignation"
   | "illegal_move"
-  | "move_limit"
-  | "provider_error"
-  | "called_off";
+  | "provider_error";
 
 /** A model at the board: which one, and how hard it thinks. */
 export type Seat = { provider: Provider; model: string; modelLabel: string; effort: Effort | null };
@@ -36,8 +34,6 @@ export type Game = {
   initialMs: number;
   incrementMs: number;
   playerColor: Color;
-  /** In an arena game, the model that plays the player's colour. Null when a person does. */
-  rival: Seat | null;
   fen: string;
   ply: number;
   whiteMs: number;
@@ -56,7 +52,6 @@ export type Game = {
   rating: RatingChange | null;
 };
 
-/** In an arena game, the "player" numbers are the rival model's. */
 export type RatingChange = { playerBefore: number; playerAfter: number; aiBefore: number; aiAfter: number };
 
 export type Move = { ply: number; san: string; uci: string; fenAfter: string; spentMs: number };
@@ -71,8 +66,6 @@ export type GameView = {
   provider: Provider;
   modelLabel: string;
   effort: Effort | null;
-  /** In an arena game, the model on the player's side of the board. */
-  rival: { label: string; effort: Effort | null } | null;
   /** What stopped the last call to a model that failed. Null if none has. */
   aiError: string | null;
   timeControl: string;
@@ -91,6 +84,3 @@ export type GameView = {
 export const opposite = (color: Color): Color => (color === "white" ? "black" : "white");
 /** White moves on even plies (0, 2, ...). */
 export const turnAt = (ply: number): Color => (ply % 2 === 0 ? "white" : "black");
-
-/** The model that moves for `color`, or null when a person does. */
-export const seatOf = (game: Game, color: Color): Seat | null => (color === game.playerColor ? game.rival : game);

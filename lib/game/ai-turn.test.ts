@@ -66,7 +66,7 @@ describe("runAiTurn", () => {
     await h.runJobs();
     expect(h.requests).toHaveLength(2);
     expect(await getGame(db, id)).toMatchObject({ status: "aborted", result: null, reason: "provider_error" });
-    expect(await gameCounts(db, dayKey(NOON), "player-1", "ip-1", NOON)).toMatchObject([{ total: 0, player: 0 }]);
+    expect(await gameCounts(db, dayKey(NOON), "player-1", "ip-1")).toMatchObject([{ total: 0, player: 0 }]);
   });
 
   it("aborts when the provider is no longer connected", async () => {

@@ -31,23 +31,20 @@ export type GameCounts = ModelRef & {
   player: number;
   /** Those of them started from this network. */
   ip: number;
-  /** Games against the model still being played, whoever or whatever started them. */
+  /** Games against the model still being played, whoever started them. */
   active: number;
-  /** Games people started against it from `since` up to the day. */
-  earlier: number;
 };
 
-export function gameCounts(q: Queryable, day: string, playerId: string, ipHash: string, since: number): Promise<GameCounts[]> {
+export function gameCounts(q: Queryable, day: string, playerId: string, ipHash: string): Promise<GameCounts[]> {
   const played = "rival_model IS NULL AND status <> 'aborted'";
   return q.query<GameCounts>(
     `SELECT provider, model,
             (count(*) FILTER (WHERE day = $1 AND ${played}))::int AS total,
             (count(*) FILTER (WHERE day = $1 AND ${played} AND player_id = $2))::int AS player,
             (count(*) FILTER (WHERE day = $1 AND ${played} AND ip_hash = $3))::int AS ip,
-            (count(*) FILTER (WHERE status = 'active'))::int AS active,
-            (count(*) FILTER (WHERE day <> $1 AND created_at >= $4 AND ${played}))::int AS earlier
-       FROM games WHERE day = $1 OR status = 'active' OR created_at >= $4 GROUP BY provider, model`,
-    [day, playerId, ipHash, toTs(since)],
+            (count(*) FILTER (WHERE status = 'active'))::int AS active
+       FROM games WHERE day = $1 OR status = 'active' GROUP BY provider, model`,
+    [day, playerId, ipHash],
   );
 }
 

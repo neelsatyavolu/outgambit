@@ -14,11 +14,3 @@ export function expectedPlayers(crowd: Crowd): number {
 export function playerShare(dayBudget: number, expected: number): number {
   return Math.max(1, Math.floor(dayBudget / expected));
 }
-
-/**
- * The games the arena may start: what is left once the games players usually
- * start in what remains of the day have been set aside for them.
- */
-export function arenaRoom(left: number, usualPerDay: number, dayFractionLeft: number): number {
-  return Math.max(0, left - Math.ceil(usualPerDay * dayFractionLeft));
-}

@@ -11,7 +11,7 @@ import { claimLease, commitMove, finishGame, getGame, listMoves, recordAttempt, 
 import { recordUsage } from "../db/usage";
 import type { Deps } from "./deps";
 import { dayKey } from "./limits";
-import { opposite, seatOf, turnAt, type Color, type Game, type Provider, type Seat } from "./types";
+import { opposite, turnAt, type Color, type Game, type Provider, type Seat } from "./types";
 
 /** Runs the AI's turn now for a fast opponent, or after the response for a slow one. */
 export async function startAiTurn(deps: Deps, game: Pick<Game, "id" | "provider">): Promise<void> {
@@ -112,33 +112,24 @@ async function play(deps: Deps, game: Game, mover: Color, history: string[], san
 }
 
 /**
- * Plays the move of the model whose turn it is, if there is one and nobody
- * else is already doing so. Safe to call more than once for the same turn.
+ * Plays the AI's move for a game, if it is the AI's turn and nobody else is
+ * already doing so. Safe to call more than once for the same turn.
  *
  * One job cannot run for ever, so a runner that has no room left for another
- * full call before `jobDeadline` gives up its lease and lets the next poll
- * start a new runner. The counts of failed attempts are kept in the database
- * across that hand-over.
+ * full call gives up its lease and lets the next poll start a new runner.
+ * The counts of failed attempts are kept in the database across that hand-over.
  */
-export async function runAiTurn(
-  deps: Deps,
-  gameId: string,
-  jobDeadline: number = deps.now() + AI_JOB_BUDGET_MS,
-): Promise<void> {
-  const found = await getGame(deps.db, gameId);
-  if (!found || found.status !== "active") return;
-  const mover = turnAt(found.ply);
-  const seat = seatOf(found, mover);
-  if (!seat) return;
+export async function runAiTurn(deps: Deps, gameId: string): Promise<void> {
+  const jobDeadline = deps.now() + AI_JOB_BUDGET_MS;
+  const game = await getGame(deps.db, gameId);
+  if (!game || game.status !== "active") return;
+  const mover = turnAt(game.ply);
+  if (mover === game.playerColor) return;
   const started = deps.now();
-  // An arena game's clock only runs while a model is being asked, so a turn
-  // picked up late starts afresh instead of paying for the wait.
-  const arena = found.rival !== null;
-  const game = arena ? { ...found, turnStartedAt: started } : found;
   const startedWith = remainingMs(game, mover, started);
   if (startedWith <= 0) return void (await loseOnTime(deps, game, mover));
-  let lease = leaseUntil(started, startedWith, seat.provider);
-  if (!(await claimLease(deps.db, game.id, game.ply, started, lease, arena))) return;
+  let lease = leaseUntil(started, startedWith, game.provider);
+  if (!(await claimLease(deps.db, game.id, game.ply, started, lease))) return;
 
   const history = (await listMoves(deps.db, game.id)).map((m) => m.san);
   let rejected: string | undefined;
@@ -148,13 +139,13 @@ export async function runAiTurn(
     if (leftMs <= 0) return void (await loseOnTime(deps, game, mover));
     if (attempt > 0) {
       const now = deps.now();
-      const roomForCall = jobDeadline - now >= callTimeoutMs(leftMs, seat.provider);
-      const next = roomForCall ? leaseUntil(now, leftMs, seat.provider) : now;
+      const roomForCall = jobDeadline - now >= callTimeoutMs(leftMs, game.provider);
+      const next = roomForCall ? leaseUntil(now, leftMs, game.provider) : now;
       if (!(await renewLease(deps.db, game.id, game.ply, lease, next)) || !roomForCall) return;
       lease = next;
     }
-    const result = await ask(deps, seat, { history, rejected, leftMs, refresh });
-    await noteUsage(deps, seat, result);
+    const result = await ask(deps, game, { history, rejected, leftMs, refresh });
+    await noteUsage(deps, game, result);
     if (result.kind === "move") return play(deps, game, mover, history, result.san);
 
     const why = result.kind === "provider_error" ? result.message : null;

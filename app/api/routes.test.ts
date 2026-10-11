@@ -54,9 +54,6 @@ const OWNER_ROUTES: Route[] = [
   { name: "remove a model", method: "DELETE", path: "/api/owner/models", load: () => import("./owner/models/route") },
   { name: "list games", method: "GET", path: "/api/owner/games", load: () => import("./owner/games/route") },
   { name: "suggest free models", method: "GET", path: "/api/owner/models/suggestions", load: () => import("./owner/models/suggestions/route") },
-  { name: "arena status", method: "GET", path: "/api/owner/arena", load: () => import("./owner/arena/route") },
-  { name: "change the arena", method: "PATCH", path: "/api/owner/arena", load: () => import("./owner/arena/route") },
-  { name: "start an arena game", method: "POST", path: "/api/owner/arena", load: () => import("./owner/arena/route") },
   { name: "usage", method: "GET", path: "/api/owner/usage", load: () => import("./owner/usage/route") },
 ];
 
@@ -266,8 +263,7 @@ describe("player routes", () => {
     // Other tests in this file have played the scripted opponent, so only the shape is fixed here.
     const line = (pool: string) =>
       expect.objectContaining({ provider: "fake", id: "fake-1", label: "Scripted", effort: null, pool, rating: expect.any(Number), games: expect.any(Number) });
-    expect(data.ratings).toEqual(expect.arrayContaining([line("bullet"), line("regular")]));
-    expect(data.ratings.map((r: { id: string }) => r.id).sort()).toEqual(["fake-1", "fake-1", "fake-2", "fake-2"]);
+    expect(data.ratings).toEqual([line("bullet"), line("regular")]);
   });
 
   it("shows what is left of an opponent's budget, and refuses a game once it is spent", async () => {
@@ -302,67 +298,6 @@ describe("player routes", () => {
   it("refuses the scripted opponent when it is switched off", async () => {
     await register(someone(), "198.51.100.34");
     expect((await postGame("198.51.100.34")).status).toBe(400);
-  });
-});
-
-describe("the arena", () => {
-  const arena = () => import("./owner/arena/route");
-  const tick = async (authorization?: string, query = "") =>
-    (await import("./arena/tick/route")).GET(
-      new Request(`${SITE}/api/arena/tick${query}`, { headers: authorization ? { authorization } : {} }),
-    );
-  const change = async (body: unknown) => (await arena()).PATCH(request("PATCH", "/api/owner/arena", { body }));
-  const start = async () => (await arena()).POST(request("POST", "/api/owner/arena"));
-
-  it("refuses a scheduled run without the schedule's secret", async () => {
-    expect((await tick()).status).toBe(404);
-    expect((await tick("Bearer anything")).status).toBe(404);
-    const expected = "s".repeat(24);
-    vi.stubEnv("CRON_SECRET", expected);
-    expect((await tick()).status).toBe(404);
-    expect((await tick(`Bearer ${expected.slice(1)}`)).status).toBe(404);
-    expect((await tick(expected)).status).toBe(404);
-    expect((await tick(`Bearer ${expected}`)).status).toBe(200);
-    expect((await tick(`Bearer ${expected}`, "?continue=1")).status).toBe(200);
-  });
-
-  it("lets the owner set the day's budget and choose who takes part", async () => {
-    vi.stubEnv("GAMBIT_FAKE_AI", "1");
-    signInAsOwner();
-    const status = async () => (await (await arena()).GET(request("GET", "/api/owner/arena", { origin: null }))).json();
-    expect((await status()).data).toMatchObject({
-      maxGamesPerDay: 24, scheduled: false,
-      models: [
-        { provider: "fake", id: "fake-1", arena: true, sittingOut: null },
-        { provider: "fake", id: "fake-2", arena: true, sittingOut: null },
-      ],
-    });
-    expect((await (await change({ gamesPerDay: 3 })).json()).data.gamesPerDay).toBe(3);
-    const out = await (await change({ provider: "fake", id: "fake-2", arena: false })).json();
-    expect(out.data.models.map((m: { arena: boolean }) => m.arena)).toEqual([true, false]);
-    expect((await change({ provider: "fake", id: "fake-2", arena: true })).status).toBe(200);
-    for (const bad of [{ gamesPerDay: 25 }, { gamesPerDay: -1 }, { gamesPerDay: 1.5 }, { arena: true }, {}]) {
-      expect((await change(bad)).status).toBe(400);
-    }
-    expect((await change({ provider: "fake", id: "nobody", arena: true })).status).toBe(404);
-  });
-
-  it("starts a game for the owner that anyone may watch, one at a time", async () => {
-    vi.stubEnv("GAMBIT_FAKE_AI", "1");
-    signInAsOwner();
-    expect((await change({ gamesPerDay: 0 })).status).toBe(200);
-    const started = await start();
-    expect(started.status).toBe(201);
-    const { gameId } = (await started.json()).data;
-    expect((await start()).status).toBe(409);
-    jar.clear();
-    const seen = await (await view(gameId)).json();
-    expect(seen.data).toMatchObject({ status: "active", rival: { effort: null } });
-    expect(["1+0", "20+20"]).toContain(seen.data.timeControl);
-    expect([seen.data.modelLabel, seen.data.rival.label].sort()).toEqual(["Rehearsed", "Scripted"]);
-    // Nobody can move in it or resign it.
-    expect((await move(gameId, { move: "e2e4", ply: 0 })).status).toBe(404);
-    expect((await resign(gameId)).status).toBe(409);
   });
 });
 

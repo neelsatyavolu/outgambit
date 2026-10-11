@@ -172,8 +172,8 @@ describe("createGame", () => {
     const h = metered(0);
     const created = await createGame(h.deps, slow());
     await finishGame(db, created.ok ? created.game.id : "", { status: "aborted", result: null, reason: "provider_error" });
-    expect(await gameCounts(db, dayKey(NOON), "player-1", "ip-1", NOON)).toEqual([
-      { provider: "codex", model: "gpt-a", total: 0, player: 0, ip: 0, active: 0, earlier: 0 },
+    expect(await gameCounts(db, dayKey(NOON), "player-1", "ip-1")).toEqual([
+      { provider: "codex", model: "gpt-a", total: 0, player: 0, ip: 0, active: 0 },
     ]);
   });
 
@@ -183,7 +183,7 @@ describe("createGame", () => {
     const late = await playOne(h);
     expect(late.ok && late.game.day).toBe("2026-10-09");
     h.clock.now = Date.UTC(2026, 9, 10, 7, 0);
-    expect(await gameCounts(db, dayKey(h.clock.now), "player-1", "ip-1", h.clock.now)).toEqual([]);
+    expect(await gameCounts(db, dayKey(h.clock.now), "player-1", "ip-1")).toEqual([]);
     const next = await createGame(h.deps, input());
     expect(next.ok && next.game.day).toBe("2026-10-10");
   });

@@ -5,7 +5,7 @@ import { meterAt } from "@/test/game";
 import type { Db } from "../db/client";
 import { insertGame } from "../db/games";
 import type { GameCounts } from "../db/usage";
-import { allowance, allowances, arenaGames, loadDemand, type Demand } from "./allowance";
+import { allowance, allowances, loadDemand, type Demand } from "./allowance";
 import { budgetPool } from "./pools";
 import type { Supply } from "./supply";
 
@@ -15,7 +15,7 @@ const supply = (left: number, overrides: Partial<Supply> = {}): Supply => ({
 });
 
 const jev = (counts: Partial<GameCounts>): GameCounts => ({
-  provider: "jev", model: "jev-latest", total: 0, player: 0, ip: 0, active: 0, earlier: 0, ...counts,
+  provider: "jev", model: "jev-latest", total: 0, player: 0, ip: 0, active: 0, ...counts,
 });
 
 const demand = (expected: number, ...counts: GameCounts[]): Demand => ({ counts, expected, dayFractionLeft: 0.5 });
@@ -52,41 +52,17 @@ describe("allowance", () => {
   });
 
   it("counts only the games on the same budget", () => {
-    const other: GameCounts = { provider: "openai", model: "gpt-6-luna", total: 30, player: 30, ip: 30, active: 3, earlier: 30 };
+    const other: GameCounts = { provider: "openai", model: "gpt-6-luna", total: 30, player: 30, ip: 30, active: 3 };
     expect(allowance(supply(12), demand(4, other))).toEqual({ used: 0, limit: 3, left: 12, blocked: null });
   });
 
   it("adds up the models that share a budget", () => {
     const pool = budgetPool("openrouter", "a:free")!;
     const rows: GameCounts[] = [
-      { provider: "openrouter", model: "a:free", total: 2, player: 1, ip: 1, active: 0, earlier: 0 },
-      { provider: "openrouter", model: "b:free", total: 2, player: 1, ip: 1, active: 0, earlier: 0 },
+      { provider: "openrouter", model: "a:free", total: 2, player: 1, ip: 1, active: 0 },
+      { provider: "openrouter", model: "b:free", total: 2, player: 1, ip: 1, active: 0 },
     ];
     expect(allowance(supply(4, { pool }), demand(4, ...rows))).toMatchObject({ used: 2, limit: 2, blocked: "player" });
-  });
-});
-
-describe("arenaGames", () => {
-  it("is unlimited for a model with no budget", () => {
-    expect(arenaGames(null, demand(3))).toBe(Number.POSITIVE_INFINITY);
-  });
-
-  it("is everything left when players have not been using the budget", () => {
-    expect(arenaGames(supply(15), demand(4, jev({ total: 8 })))).toBe(15);
-  });
-
-  it("leaves players what they usually start in the rest of the day", () => {
-    // 28 games in the week before is four a day, and half the day is left.
-    expect(arenaGames(supply(15), demand(4, jev({ earlier: 28 })))).toBe(13);
-    expect(arenaGames(supply(2), demand(4, jev({ earlier: 28 })))).toBe(0);
-  });
-
-  it("leaves a place for each game still being played", () => {
-    expect(arenaGames(supply(3), demand(1, jev({ active: 2 })))).toBe(1);
-  });
-
-  it("is nothing while the budget is closed", () => {
-    expect(arenaGames(supply(0, { closed: "pace" }), demand(1))).toBe(0);
   });
 });
 
@@ -108,8 +84,9 @@ describe("with the day's games", () => {
     expect((await loadDemand(db, who, NOON)).expected).toBe(4);
   });
 
-  it("does not count arena games, called-off games or old ones as players", async () => {
-    await played("arena", { rival: { provider: "fake", model: "fake-1", modelLabel: "Scripted", effort: null } });
+  it("does not count the arena's old games, called-off games or old ones as players", async () => {
+    await played("arena");
+    await db.query("UPDATE games SET rival_model = 'fake-1' WHERE player_id = 'arena'");
     await played("quit", { status: "aborted" });
     await played("long-ago", { day: "2026-09-20", createdAt: NOON - 19 * 86_400_000 });
     expect((await loadDemand(db, who, NOON)).expected).toBe(1);

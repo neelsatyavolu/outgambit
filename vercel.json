@@ -1,3 +1,0 @@
-{
-  "crons": [{ "path": "/api/arena/tick", "schedule": "0 * * * *" }]
-}

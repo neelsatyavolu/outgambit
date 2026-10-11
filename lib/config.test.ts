@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARENA, centsPerMillionTokens, effortFor, effortsFor, findTimeControl, timeControlsFor } from "./config";
+import { centsPerMillionTokens, effortFor, effortsFor, findTimeControl, timeControlsFor } from "./config";
 
 describe("efforts", () => {
   it("offers low and medium, and never high", () => {
@@ -34,14 +34,6 @@ describe("time controls", () => {
 
   it("offers the scripted opponent every control", () => {
     expect(timeControlsFor("fake").map((t) => t.id)).toEqual(["1+0", "2+1", "3+0", "5+0", "10+10", "20+20", "45+30"]);
-  });
-
-  it("plays the arena's bullet games at a control decision models are offered", () => {
-    expect(timeControlsFor("jev").map((t) => t.id)).toContain(ARENA.timeControls.bullet);
-  });
-
-  it("plays the arena's regular games at a control LLMs are offered", () => {
-    expect(timeControlsFor("codex").map((t) => t.id)).toContain(ARENA.timeControls.regular);
   });
 
   it("converts a control to milliseconds", () => {

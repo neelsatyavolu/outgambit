@@ -4,7 +4,7 @@ import { gameCounts, playersSince, type GameCounts } from "../db/usage";
 import { dayKey, nextResetAt } from "../game/limits";
 import type { Provider } from "../game/types";
 import { budgetPool, type Closed, type Pool, type PoolKind } from "./pools";
-import { arenaRoom, expectedPlayers, playerShare } from "./share";
+import { expectedPlayers, playerShare } from "./share";
 import { supplies, type Supply, type UsageSource } from "./supply";
 
 /** Why this visitor cannot start a game against a model: its budget is closed, or their own share of it is used. */
@@ -33,7 +33,7 @@ export async function loadDemand(q: Queryable, who: { playerId: string; ipHash: 
   const day = dayKey(now);
   const since = now - AVERAGE_OVER_DAYS * DAY_MS;
   const [counts, players] = await Promise.all([
-    gameCounts(q, day, who.playerId, who.ipHash, since),
+    gameCounts(q, day, who.playerId, who.ipHash),
     playersSince(q, day, since),
   ]);
   const dayFractionLeft = Math.min(1, (nextResetAt(now) - now) / DAY_MS);
@@ -50,8 +50,7 @@ function poolCounts(pool: Pool, counts: readonly GameCounts[]): Omit<GameCounts,
   const rows = counts.filter((row) => budgetPool(row.provider, row.model)?.id === pool.id);
   const sum = (pick: (row: GameCounts) => number) => rows.reduce((total, row) => total + pick(row), 0);
   return {
-    total: sum((r) => r.total), player: sum((r) => r.player), ip: sum((r) => r.ip),
-    active: sum((r) => r.active), earlier: sum((r) => r.earlier),
+    total: sum((r) => r.total), player: sum((r) => r.player), ip: sum((r) => r.ip), active: sum((r) => r.active),
   };
 }
 
@@ -92,12 +91,4 @@ export async function allowances(
     loadDemand(q, who, now),
   ]);
   return Object.fromEntries(models.map((m, i) => [`${m.provider}/${m.id}`, allowance(budgets[i], demand)]));
-}
-
-/** The games the arena may start on a budget: only what players do not usually get round to. */
-export function arenaGames(supply: Supply | null, demand: Demand): number {
-  if (!supply) return Number.POSITIVE_INFINITY;
-  if (supply.closed) return 0;
-  const { counts, left } = split(supply, demand);
-  return arenaRoom(left, counts.earlier / AVERAGE_OVER_DAYS, demand.dayFractionLeft);
 }

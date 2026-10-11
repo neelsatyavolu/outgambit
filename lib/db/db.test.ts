@@ -207,20 +207,19 @@ describe("games", () => {
     await insertGame(db, makeGame({ playerId: "a", ipHash: "x", status: "aborted" }));
     await insertGame(db, makeGame({ playerId: "a", ipHash: "x", day: "2026-10-08", status: "finished" }));
     await insertGame(db, makeGame({ playerId: "a", ipHash: "x", provider: "jev", model: "jev-latest", status: "finished" }));
-    await insertGame(db, makeGame({ playerId: "c", ipHash: "z", day: "2026-09-20", createdAt: NOON - 19 * 86_400_000, status: "finished" }));
-    const counts = await gameCounts(db, "2026-10-09", "a", "x", NOON - 7 * 86_400_000);
+    const counts = await gameCounts(db, "2026-10-09", "a", "x");
     expect(counts.sort((one, two) => one.provider.localeCompare(two.provider))).toEqual([
-      { provider: "fake", model: "fake-1", total: 3, player: 2, ip: 2, active: 2, earlier: 1 },
-      { provider: "jev", model: "jev-latest", total: 1, player: 1, ip: 1, active: 0, earlier: 0 },
+      { provider: "fake", model: "fake-1", total: 3, player: 2, ip: 2, active: 2 },
+      { provider: "jev", model: "jev-latest", total: 1, player: 1, ip: 1, active: 0 },
     ]);
   });
 
-  it("counts a game still being played wherever it started, but an arena game toward no player", async () => {
-    const rival = { provider: "fake", model: "fake-2", modelLabel: "Rehearsed", effort: null } as const;
-    await insertGame(db, makeGame({ playerId: "arena", ipHash: "arena", rival }));
+  it("counts a game still being played wherever it started, but one of the arena's old games toward no player", async () => {
+    await insertGame(db, makeGame({ playerId: "arena", ipHash: "arena" }));
+    await db.query("UPDATE games SET rival_model = 'fake-2' WHERE player_id = 'arena'");
     await insertGame(db, makeGame({ playerId: "a", ipHash: "x", day: "2026-10-08" }));
-    expect(await gameCounts(db, "2026-10-09", "a", "x", NOON + 1)).toEqual([
-      { provider: "fake", model: "fake-1", total: 0, player: 0, ip: 0, active: 2, earlier: 0 },
+    expect(await gameCounts(db, "2026-10-09", "a", "x")).toEqual([
+      { provider: "fake", model: "fake-1", total: 0, player: 0, ip: 0, active: 2 },
     ]);
   });
 
@@ -261,15 +260,6 @@ describe("games", () => {
     expect(await getSettings(db, "pause:")).toEqual(new Map([["openrouter", "1"], ["gemini/x", "2"]]));
   });
 
-  it("restarts the turn's clock with a lease when asked to", async () => {
-    const game = makeGame();
-    await insertGame(db, game);
-    expect(await claimLease(db, game.id, 0, NOON + 9_000, NOON + 20_000)).toBe(true);
-    expect((await getGame(db, game.id))?.turnStartedAt).toBe(NOON);
-    expect(await claimLease(db, game.id, 0, NOON + 30_000, NOON + 40_000, true)).toBe(true);
-    expect(await getGame(db, game.id)).toMatchObject({ turnStartedAt: NOON + 30_000, aiLeaseUntil: NOON + 40_000 });
-  });
-
   it("finds a player's active game", async () => {
     const done = makeGame({ status: "finished" });
     const live = makeGame();
@@ -285,6 +275,14 @@ describe("games", () => {
     const live = makeGame({ createdAt: NOON - 9_000 });
     for (const g of [old, recent, live]) await insertGame(db, g);
     expect((await listGames(db, 50)).map((g) => g.id)).toEqual([live.id, recent.id, old.id]);
+  });
+
+  it("leaves the arena's old games out of the list", async () => {
+    const played = makeGame({ status: "finished" });
+    await insertGame(db, played);
+    await insertGame(db, makeGame({ playerId: "arena", status: "finished" }));
+    await db.query("UPDATE games SET rival_model = 'fake-2' WHERE player_id = 'arena'");
+    expect((await listGames(db, 50)).map((g) => g.id)).toEqual([played.id]);
   });
 });
 
@@ -304,18 +302,9 @@ describe("models", () => {
     const row = { provider: "openrouter", modelId: "x/y:free", label: "Y", supportsEffort: false, enabled: true } as const;
     await upsertModel(db, row);
     await upsertModel(db, { ...row, enabled: false });
-    expect(await listModelRows(db)).toEqual([{ ...row, enabled: false, arena: null }]);
+    expect(await listModelRows(db)).toEqual([{ ...row, enabled: false }]);
     await deleteModel(db, "openrouter", "x/y:free");
     expect(await listModelRows(db)).toEqual([]);
-  });
-
-  it("keeps a model's place in the arena when the rest of it is saved again", async () => {
-    const row = { provider: "codex", modelId: "gpt-a", label: "GPT A", supportsEffort: true, enabled: true } as const;
-    await upsertModel(db, { ...row, arena: true });
-    await upsertModel(db, { ...row, enabled: false });
-    expect(await listModelRows(db)).toEqual([{ ...row, enabled: false, arena: true }]);
-    await upsertModel(db, { ...row, arena: false });
-    expect((await listModelRows(db))[0].arena).toBe(false);
   });
 });
 

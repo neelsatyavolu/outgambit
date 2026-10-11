@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arenaRoom, expectedPlayers, playerShare } from "./share";
+import { expectedPlayers, playerShare } from "./share";
 
 describe("expectedPlayers", () => {
   it("expects the usual crowd at the start of the day", () => {
@@ -34,23 +34,5 @@ describe("playerShare", () => {
 
   it("is one game when there are fewer games than players", () => {
     expect(playerShare(2, 6)).toBe(1);
-  });
-});
-
-describe("arenaRoom", () => {
-  it("is everything when nobody has been playing", () => {
-    expect(arenaRoom(15, 0, 1)).toBe(15);
-  });
-
-  it("sets aside what players usually start in the rest of the day", () => {
-    expect(arenaRoom(15, 8, 0.5)).toBe(11);
-  });
-
-  it("sets aside a whole game for any part of one", () => {
-    expect(arenaRoom(1, 0.2, 0.1)).toBe(0);
-  });
-
-  it("is nothing when the players' usual games cover what is left", () => {
-    expect(arenaRoom(3, 8, 0.5)).toBe(0);
   });
 });

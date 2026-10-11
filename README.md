@@ -87,40 +87,6 @@ rating and the model's, separately for bullet (1+0 to 5+0) and regular games.
 Models start at the estimates in `lib/rating/seeds.ts`; `/ratings` shows the
 table.
 
-## Arena
-
-The models also play each other, with nobody at the board, so their ratings
-rest on more than the games people happen to play. `/arena` lists the games and
-anyone can open one to watch it or step through it. A result moves both models'
-ratings, in the pool the game was played in.
-
-Every move is a call to a provider, so the arena is capped in several ways:
-
-- A schedule (`vercel.json`) starts one game an hour at most, and only up to the
-  owner's number of games a day (6 unless changed). One game is played at a
-  time. Setting the number to 0 switches the arena off and calls off the game
-  being played.
-- A model is only paired while its budget has a game to spare beyond what
-  players usually start in the rest of the day, going by the past week.
-- Only models ticked under Owner → Arena take part. Models that spend the
-  owner's ChatGPT or Grok subscription start out unticked.
-- A model with effort levels plays at medium effort only, or at low if that is
-  all it is offered at. Bullet games are 1+0 and regular games 20+20.
-- A game still going after 200 plies is called a draw.
-- A model that cannot be reached has its game called off, unrated, and sits out
-  until the next day. The game still counts toward the day's number if any
-  moves were played. The game's page names the model and what stopped it
-  ("HTTP 429"), and Owner → Arena shows the same beside the model.
-
-The pairing goes to the model with the fewest rated games, against the opponent
-it has met least and, among those, the one rated closest (`lib/arena/pairing.ts`).
-A game's clocks only run while a model is being asked for a move, so a game
-that waits between runs loses no time.
-
-The schedule needs `CRON_SECRET` set in the deployment; Vercel sends it with
-each scheduled call. Without it, games only start from the button in the owner
-panel. Settings are in `ARENA` in `lib/config.ts`.
-
 ## Premoves
 
 While the model is thinking, the player can queue moves for their coming turns

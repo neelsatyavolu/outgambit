@@ -163,16 +163,10 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
   const ai = opposite(view.playerColor);
   const lost = capturedPieces(view.fen);
   const end = headline(view, spectator);
-  // In an arena game the player's side is a model too.
-  const { rival } = view;
-  const playerName = rival ? rival.label : spectator ? "Player" : "You";
-  const thinker = !active || optimistic ? null : view.turn === ai ? view.modelLabel : (rival?.label ?? null);
-  const effortOf = (effort: GameView["effort"]) => (effort ? `${effort} effort` : null);
+  const aiThinking = active && view.turn === ai && !optimistic;
   const seat = (color: Color) => ({
-    name: color === ai ? view.modelLabel : playerName,
-    detail: [color === ai ? effortOf(view.effort) : rival && effortOf(rival.effort), color === ai ? view.timeControl : color]
-      .filter(Boolean)
-      .join(" · "),
+    name: color === ai ? view.modelLabel : spectator ? "Player" : "You",
+    detail: color === ai ? [view.effort ? `${view.effort} effort` : null, view.timeControl].filter(Boolean).join(" · ") : color,
     // A side shows the pieces it has taken, which are the ones the other side lost.
     captured: lost[opposite(color)],
     ms: liveMs(synced, color, now),
@@ -187,15 +181,14 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
           <p>{end.detail}</p>
           {view.rating && (
             <p className="num" data-testid="rating-change" style={{ marginTop: 8 }}>
-              {rival ? `${rival.label}, ${view.pool}:` : `${spectator ? "Player" : "Your"} ${view.pool} rating:`}{" "}
-              {view.rating.playerBefore} → {view.rating.playerAfter} (
+              {spectator ? "Player" : "Your"} {view.pool} rating: {view.rating.playerBefore} → {view.rating.playerAfter} (
               {signedChange(view.rating.playerAfter - view.rating.playerBefore)}) · {view.modelLabel}:{" "}
               {view.rating.aiBefore} → {view.rating.aiAfter}
             </p>
           )}
           <div className="actions">
-            <Link className="btn" href={rival ? "/arena" : spectator ? "/owner" : "/"}>
-              {rival ? "Back to the arena" : spectator ? "Back to games" : "New game"}
+            <Link className="btn" href={spectator ? "/owner" : "/"}>
+              {spectator ? "Back to games" : "New game"}
             </Link>
           </div>
         </div>
@@ -215,10 +208,10 @@ export function GameClient({ id, spectator }: { id: string; spectator: boolean }
         <aside className="side">
           <Seat {...seat(ai)} />
           <div className="thinking">
-            {thinker && (
+            {aiThinking && (
               <>
                 <span className="dot live" />
-                <span className="label">{thinker} is thinking</span>
+                <span className="label">{view.modelLabel} is thinking</span>
               </>
             )}
             {myTurn && !optimistic && <span className="label">Your move</span>}

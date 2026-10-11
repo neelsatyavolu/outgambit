@@ -10,7 +10,7 @@ import { usageSource } from "../budget/sources";
 import { getDb } from "../db/client";
 import type { Deps } from "../game/deps";
 import { clientIp, fail, hashIp, isPlayerId, sameOrigin } from "../http";
-import { findOffered, listEntrants } from "../owner/catalog";
+import { findOffered } from "../owner/catalog";
 import { OWNER_COOKIE, isValidSession } from "../owner/session";
 
 export const PLAYER_COOKIE = "gambit_player";
@@ -34,7 +34,6 @@ export async function buildDeps(): Promise<Deps> {
         }
       }),
     findModel: (provider, id) => findOffered(db, provider, id),
-    entrants: () => listEntrants(db),
     usage: usageSource(db),
     random: Math.random,
   };

@@ -17,8 +17,6 @@ export type Deps = {
   /** Runs a job after the current request has been answered. */
   schedule: (job: () => Promise<void>) => void;
   findModel: (provider: Provider, id: string) => Promise<OfferedModel | null>;
-  /** The models that play each other in the arena. */
-  entrants: () => Promise<OfferedModel[]>;
   /** What the providers say has been used of the owner's accounts. */
   usage: UsageSource;
   random: () => number;

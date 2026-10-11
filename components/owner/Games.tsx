@@ -10,8 +10,6 @@ type Summary = {
   id: string;
   day: string;
   modelLabel: string;
-  /** The model on the player's side, in an arena game. */
-  rivalLabel: string | null;
   effort: Effort | null;
   timeControl: string;
   playerColor: Color;
@@ -28,9 +26,8 @@ function outcome(game: Summary): string {
   if (game.status === "active") return "live";
   if (game.status === "aborted") return "aborted";
   if (game.result === "draw") return `draw · ${reasonText(game.reason!)}`;
-  const playerWon = game.result === game.playerColor;
-  const winner = game.rivalLabel ? (playerWon ? game.rivalLabel : game.modelLabel) : playerWon ? "player" : "ai";
-  return `${winner} won · ${reasonText(game.reason!)}`;
+  const winner = game.result === game.playerColor ? "player won" : "ai won";
+  return `${winner} · ${reasonText(game.reason!)}`;
 }
 
 export function Games() {
@@ -58,11 +55,9 @@ export function Games() {
         <Link className="row" key={game.id} href={`/owner/games/${game.id}`}>
           <span className={`dot ${game.status === "active" ? "live" : ""}`} />
           <span className="grow">
-            {game.rivalLabel ? `${game.rivalLabel} vs ${game.modelLabel}` : game.modelLabel}
+            {game.modelLabel}
             <span className="meta" style={{ marginLeft: 12 }}>
-              {[game.effort, game.timeControl, game.rivalLabel ? "arena" : `player is ${game.playerColor}`]
-                .filter(Boolean)
-                .join(" · ")}
+              {[game.effort, game.timeControl, `player is ${game.playerColor}`].filter(Boolean).join(" · ")}
             </span>
           </span>
           <span className="meta num">{game.moves} plies</span>

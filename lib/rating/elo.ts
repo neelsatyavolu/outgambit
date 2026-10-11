@@ -67,12 +67,3 @@ export function rate(input: RatingInput): { player: number; model: number } {
     model: Math.max(MIN_RATING, Math.round(input.model - modelK * (input.score - expected))),
   };
 }
-
-/**
- * Both ratings after an arena game between two models, given `a`'s result.
- * Neither rating is a newcomer's guess, so both move at the normal rate.
- */
-export function rateModels(a: number, b: number, score: 0 | 0.5 | 1): { a: number; b: number } {
-  const shift = MODEL_K.normal * (score - expectedScore(a, b));
-  return { a: Math.max(MIN_RATING, Math.round(a + shift)), b: Math.max(MIN_RATING, Math.round(b - shift)) };
-}

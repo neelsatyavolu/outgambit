@@ -5,7 +5,7 @@ import { fromTs, fromTsOrNull, toTs, toTsOrNull } from "./time";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function rowToGame(row: Row): Game {
+function rowToGame(row: Row): Game {
   return {
     id: row.id as string,
     playerId: row.player_id as string,
@@ -19,15 +19,6 @@ export function rowToGame(row: Row): Game {
     initialMs: row.initial_ms as number,
     incrementMs: row.increment_ms as number,
     playerColor: row.player_color as Game["playerColor"],
-    rival:
-      row.rival_model == null
-        ? null
-        : {
-            provider: row.rival_provider as Game["provider"],
-            model: row.rival_model as string,
-            modelLabel: row.rival_label as string,
-            effort: row.rival_effort as Game["effort"],
-          },
     fen: row.fen as string,
     ply: row.ply as number,
     whiteMs: row.white_ms as number,
@@ -56,13 +47,12 @@ export async function insertGame(q: Queryable, g: Game): Promise<void> {
   await q.query(
     `INSERT INTO games (id, player_id, ip_hash, day, provider, model, model_label, effort, time_control,
        initial_ms, increment_ms, player_color, fen, ply, white_ms, black_ms, turn_started_at, ai_lease_until,
-       status, result, reason, created_at, rival_provider, rival_model, rival_label, rival_effort)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
+       status, result, reason, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
     [
       g.id, g.playerId, g.ipHash, g.day, g.provider, g.model, g.modelLabel, g.effort, g.timeControl,
       g.initialMs, g.incrementMs, g.playerColor, g.fen, g.ply, g.whiteMs, g.blackMs, toTs(g.turnStartedAt),
       toTsOrNull(g.aiLeaseUntil), g.status, g.result, g.reason, toTs(g.createdAt),
-      g.rival?.provider ?? null, g.rival?.model ?? null, g.rival?.modelLabel ?? null, g.rival?.effort ?? null,
     ],
   );
 }
@@ -94,10 +84,10 @@ export async function activeGameFor(q: Queryable, playerId: string): Promise<Gam
   return rows[0] ? rowToGame(rows[0]) : null;
 }
 
-/** Live games first, then the most recent. */
+/** Live games first, then the most recent. The games the arena played before it was removed are left out. */
 export async function listGames(q: Queryable, limit: number): Promise<Game[]> {
   const rows = await q.query(
-    "SELECT * FROM games ORDER BY (status = 'active') DESC, created_at DESC LIMIT $1",
+    "SELECT * FROM games WHERE rival_model IS NULL ORDER BY (status = 'active') DESC, created_at DESC LIMIT $1",
     [limit],
   );
   return rows.map(rowToGame);
@@ -197,7 +187,6 @@ export async function finishGame(q: Queryable, id: string, ending: Ending, guard
 /**
  * Ends every active game whose side to move has run out of time. Polling
  * only reaches games someone is looking at; this reaches the abandoned ones.
- * Arena games are left alone: their clocks stop when nobody is running them.
  */
 export async function expireOverdue(q: Queryable, now: number): Promise<number> {
   const rows = await q.query(
@@ -205,7 +194,7 @@ export async function expireOverdue(q: Queryable, now: number): Promise<number> 
             result = CASE WHEN ply % 2 = 0 THEN 'black' ELSE 'white' END,
             white_ms = CASE WHEN ply % 2 = 0 THEN 0 ELSE white_ms END,
             black_ms = CASE WHEN ply % 2 = 1 THEN 0 ELSE black_ms END
-      WHERE status = 'active' AND rival_model IS NULL
+      WHERE status = 'active'
         AND turn_started_at + (CASE WHEN ply % 2 = 0 THEN white_ms ELSE black_ms END) * interval '1 millisecond'
             <= $1::timestamptz
       RETURNING id`,
@@ -214,23 +203,13 @@ export async function expireOverdue(q: Queryable, now: number): Promise<number> 
   return rows.length;
 }
 
-/**
- * Takes the right to run the AI's turn at `ply`. Only one caller wins.
- * `restartTurn` also starts the turn's clock again from `now`.
- */
-export async function claimLease(
-  q: Queryable,
-  id: string,
-  ply: number,
-  now: number,
-  until: number,
-  restartTurn = false,
-): Promise<boolean> {
+/** Takes the right to run the AI's turn at `ply`. Only one caller wins. */
+export async function claimLease(q: Queryable, id: string, ply: number, now: number, until: number): Promise<boolean> {
   const rows = await q.query(
-    `UPDATE games SET ai_lease_until = $4, turn_started_at = CASE WHEN $5 THEN $3::timestamptz ELSE turn_started_at END
+    `UPDATE games SET ai_lease_until = $4
       WHERE id = $1 AND ply = $2 AND status = 'active'
         AND (ai_lease_until IS NULL OR ai_lease_until <= $3) RETURNING id`,
-    [id, ply, toTs(now), toTs(until), restartTurn],
+    [id, ply, toTs(now), toTs(until)],
   );
   return rows.length > 0;
 }

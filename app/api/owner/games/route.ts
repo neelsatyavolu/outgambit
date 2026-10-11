@@ -16,7 +16,6 @@ export async function GET(request: Request) {
       id: g.id,
       day: g.day,
       modelLabel: g.modelLabel,
-      rivalLabel: g.rival?.modelLabel ?? null,
       effort: g.effort,
       timeControl: g.timeControl,
       playerColor: g.playerColor,

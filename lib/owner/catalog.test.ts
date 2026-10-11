@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { resetDb, testDb } from "@/test/db";
 import type { Db } from "../db/client";
 import { upsertModel } from "../db/models";
-import { findOffered, listEntrants, listForOwner, listOffered } from "./catalog";
+import { findOffered, listForOwner, listOffered } from "./catalog";
 import { saveSecret } from "./credentials";
 
 const NOW = 1_800_000_000_000;
@@ -26,22 +26,8 @@ describe("listForOwner", () => {
   it("lists catalog models as switched off until the owner enables them", async () => {
     const models = await listForOwner(db, loadCatalog);
     expect(models.find((m) => m.id === "gpt-a")).toEqual({
-      provider: "codex", id: "gpt-a", label: "GPT A", supportsEffort: true, enabled: false, arena: false,
-      connected: false, custom: false,
+      provider: "codex", id: "gpt-a", label: "GPT A", supportsEffort: true, enabled: false, connected: false, custom: false,
     });
-  });
-
-  it("keeps models that spend the owner's subscription out of the arena until they are put in", async () => {
-    await upsertModel(db, { provider: "openrouter", modelId: "x/y:free", label: "Y", supportsEffort: false, enabled: true });
-    const arena = async () =>
-      Object.fromEntries((await listForOwner(db, loadCatalog)).map((m) => [`${m.provider}/${m.id}`, m.arena]));
-    expect(await arena()).toMatchObject({
-      "codex/gpt-a": false, "grok/grok-a": false, "jev/jev-latest": true, "openai/gpt-6-luna": true,
-      "gateway/liquid/d1": true, "openrouter/x/y:free": true,
-    });
-    await upsertModel(db, { provider: "codex", modelId: "gpt-a", label: "GPT A", supportsEffort: true, enabled: true, arena: true });
-    await upsertModel(db, { provider: "jev", modelId: "jev-latest", label: "Jev", supportsEffort: false, enabled: true, arena: false });
-    expect(await arena()).toMatchObject({ "codex/gpt-a": true, "jev/jev-latest": false });
   });
 
   it("shows a catalog model as enabled once it has been switched on", async () => {
@@ -129,22 +115,6 @@ describe("listOffered", () => {
     await saveSecret(db, "jev", key, NOW);
     await upsertModel(db, { provider: "jev", modelId: "jev-latest", label: "Jev", supportsEffort: false, enabled: false });
     expect(await listOffered(db, loadCatalog)).toEqual([]);
-  });
-});
-
-describe("listEntrants", () => {
-  it("enters only offered models that are in the arena", async () => {
-    await saveSecret(db, "codex", oauth, NOW);
-    await saveSecret(db, "jev", key, NOW);
-    await upsertModel(db, { provider: "codex", modelId: "gpt-a", label: "GPT A", supportsEffort: true, enabled: true });
-    // Both are offered, but gpt-a spends a subscription and has not been put in.
-    expect((await listOffered(db, loadCatalog)).map((m) => m.id)).toEqual(["gpt-a", "jev-latest"]);
-    expect((await listEntrants(db, loadCatalog)).map((m) => m.id)).toEqual(["jev-latest"]);
-    await upsertModel(db, { provider: "codex", modelId: "gpt-a", label: "GPT A", supportsEffort: true, enabled: true, arena: true });
-    expect((await listEntrants(db, loadCatalog)).map((m) => m.id)).toEqual(["gpt-a", "jev-latest"]);
-    // A model in the arena that is not offered to players does not play.
-    await upsertModel(db, { provider: "grok", modelId: "grok-a", label: "Grok A", supportsEffort: true, enabled: true, arena: true });
-    expect((await listEntrants(db, loadCatalog)).map((m) => m.id)).toEqual(["gpt-a", "jev-latest"]);
   });
 });
 

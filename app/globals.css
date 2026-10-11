@@ -246,20 +246,6 @@ a.row:hover {
   letter-spacing: 0.08em;
 }
 
-/* An arena game: who played, then how it went. On a phone the details drop beneath the names. */
-.arena-row,
-.arena-controls {
-  flex-wrap: wrap;
-}
-
-.arena-controls {
-  border: 1px solid var(--border);
-}
-
-.arena-controls .field {
-  width: 80px;
-}
-
 .group-title {
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
@@ -866,20 +852,6 @@ textarea.field {
   }
 
   .ratings-table td:nth-child(2) {
-    overflow-wrap: anywhere;
-  }
-
-  .arena-row .grow {
-    flex-basis: calc(100% - 19px);
-  }
-
-  .arena-row .meta {
-    flex-basis: 100%;
-    padding-left: 19px;
-  }
-
-  .arena-controls .meta {
-    flex-basis: 100%;
     overflow-wrap: anywhere;
   }
 }
