@@ -126,9 +126,9 @@ describe("createGame", () => {
   });
 
   it("refuses a subscription model once its weekly meter has caught up with the pace", async () => {
-    // Half way through the week, a quarter of the allowance may be used.
-    expect((await playOne(metered(24), slow())).ok).toBe(true);
-    expect(await createGame(metered(25).deps, slow())).toEqual({ ok: false, error: "no_games_left", blocked: "pace" });
+    // Half way through the week, a quarter of the allowance may be used, and the leeway on top.
+    expect((await playOne(metered(34), slow())).ok).toBe(true);
+    expect(await createGame(metered(35).deps, slow())).toEqual({ ok: false, error: "no_games_left", blocked: "pace" });
   });
 
   it("refuses it when half its short window is used, whatever the week looks like", async () => {
@@ -142,7 +142,7 @@ describe("createGame", () => {
 
   it("splits a budget between the day's players", async () => {
     // Six games of headroom, and two people have already played one each.
-    const h = metered(19);
+    const h = metered(29);
     for (const playerId of ["a", "b"]) expect((await playOne(h, slow({ playerId, ipHash: playerId }))).ok).toBe(true);
     for (let i = 0; i < 3; i++) expect((await playOne(h, slow())).ok).toBe(true);
     expect(await createGame(h.deps, slow())).toEqual({ ok: false, error: "no_games_left", blocked: "player" });
@@ -151,13 +151,13 @@ describe("createGame", () => {
   });
 
   it("lets one network have two players' shares and no more", async () => {
-    const h = metered(19);
+    const h = metered(29);
     for (let i = 0; i < 4; i++) expect((await playOne(h, slow({ playerId: `p${i}` }))).ok).toBe(true);
     expect(await createGame(h.deps, slow({ playerId: "one-more" }))).toEqual({ ok: false, error: "no_games_left", blocked: "network" });
   });
 
   it("gives out only the last game when two visitors ask at once", async () => {
-    const h = metered(24);
+    const h = metered(34);
     // Each request lingers between counting the day's games and adding its own.
     const racing = { ...h.deps, db: pausingAfter(db, /count\(\*\)/) };
     const results = await Promise.all([

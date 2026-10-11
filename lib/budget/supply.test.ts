@@ -39,22 +39,22 @@ const one = async (model: ModelRef, usage = source()) => (await supplies(db, usa
 describe("a subscription's budget", () => {
   it("is the meter's headroom under the pace line, at a percent a game", async () => {
     expect(await one(GPT)).toEqual({
-      pool: { id: "codex", kind: "meter" }, left: 15, closed: null, used: 10, limit: 25,
+      pool: { id: "codex", kind: "meter" }, left: 25, closed: null, used: 10, limit: 35,
       resetsAt: meterAt(0).weekly.resetsAt, readAt: NOON, error: null,
     });
   });
 
   it("closes on pace when less than a game of headroom is left", async () => {
-    const meter = async () => ({ value: meterAt(24.5), readAt: NOON, error: null });
+    const meter = async () => ({ value: meterAt(34.5), readAt: NOON, error: null });
     expect(await one(GPT, source({ meter }))).toMatchObject({ left: 0, closed: "pace" });
   });
 
-  it("gives a week nobody has used yet one game, even before the pace line has risen", async () => {
+  it("gives a week that has only just begun the leeway to play on, and no more", async () => {
     const week = 7 * 24 * 60 * 60 * 1000;
     const fresh = { weekly: { usedPercent: 0, resetsAt: NOON + week, lengthMs: week }, short: null };
     const meter = async () => ({ value: fresh, readAt: NOON, error: null });
-    expect(await one(GPT, source({ meter }))).toMatchObject({ left: 1, closed: null, used: 0, limit: 0 });
-    const started = { ...fresh, weekly: { ...fresh.weekly, usedPercent: 1 } };
+    expect(await one(GPT, source({ meter }))).toMatchObject({ left: 10, closed: null, used: 0, limit: 10 });
+    const started = { ...fresh, weekly: { ...fresh.weekly, usedPercent: 10 } };
     expect(await one(GPT, source({ meter: async () => ({ value: started, readAt: NOON, error: null }) }))).toMatchObject({ left: 0, closed: "pace" });
   });
 

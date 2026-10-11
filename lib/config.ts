@@ -7,6 +7,8 @@ import { EFFORTS, type Effort, type Provider } from "./game/types";
 export const BUDGET = {
   /** The most of a subscription's weekly allowance that may be used by the time it resets, whoever used it. */
   weeklyShare: 0.5,
+  /** How far ahead of an even pace through the week usage may run, in percent of the weekly allowance. */
+  paceLeewayPercent: 10,
   /** The most of a subscription's short window (ChatGPT's five hours) that may be used. */
   shortWindowShare: 0.5,
   /**

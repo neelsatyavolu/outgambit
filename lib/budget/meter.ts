@@ -18,11 +18,13 @@ const clamp = (value: number, low: number, high: number): number => Math.min(Mat
 /**
  * The percent of the weekly allowance that may have been used by `now`: a
  * straight line from nothing when the week starts to the allowed share when
- * it resets. Staying under it spreads that share over the whole week.
+ * it resets, plus some leeway so a busy few days do not close play. Staying
+ * under it spreads that share over the week, and it never passes the share.
  */
 export function paceLine(week: Window, now: number): number {
   const elapsed = clamp((now - (week.resetsAt - week.lengthMs)) / week.lengthMs, 0, 1);
-  return BUDGET.weeklyShare * 100 * elapsed;
+  const share = BUDGET.weeklyShare * 100;
+  return Math.min(share, share * elapsed + BUDGET.paceLeewayPercent);
 }
 
 /**

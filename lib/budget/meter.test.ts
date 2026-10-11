@@ -9,12 +9,16 @@ const tokens = { accessToken: "access", refreshToken: "refresh", expiresAt: 0, a
 const replying = (status: number, body: unknown) => async () => new Response(JSON.stringify(body), { status });
 
 describe("paceLine", () => {
-  it("starts the week at nothing", () => {
-    expect(paceLine(week(0), START)).toBe(0);
+  it("starts the week with the leeway and nothing more", () => {
+    expect(paceLine(week(0), START)).toBe(10);
   });
 
-  it("allows a quarter of the allowance half way through the week", () => {
-    expect(paceLine(week(0), START + WEEK / 2)).toBe(25);
+  it("allows a quarter of the allowance and the leeway half way through the week", () => {
+    expect(paceLine(week(0), START + WEEK / 2)).toBe(35);
+  });
+
+  it("never passes half the allowance, leeway or not", () => {
+    expect(paceLine(week(0), START + WEEK - DAY / 2)).toBe(50);
   });
 
   it("ends the week at half the allowance, and stays there if the reading is late", () => {
@@ -27,17 +31,17 @@ describe("headroom", () => {
   const midweek = START + WEEK / 2;
 
   it("is the gap between the meter and the pace line", () => {
-    expect(headroom({ weekly: week(10), short: null }, midweek)).toEqual({ points: 15, closed: null });
+    expect(headroom({ weekly: week(10), short: null }, midweek)).toEqual({ points: 25, closed: null });
   });
 
   it("closes on pace once the meter has caught the line", () => {
-    expect(headroom({ weekly: week(25), short: null }, midweek)).toEqual({ points: 0, closed: "pace" });
+    expect(headroom({ weekly: week(35), short: null }, midweek)).toEqual({ points: 0, closed: "pace" });
     expect(headroom({ weekly: week(80), short: null }, midweek)).toEqual({ points: 0, closed: "pace" });
   });
 
   it("closes when half the short window is used, even under the weekly pace", () => {
     const short = { usedPercent: 50, resetsAt: midweek + 1, lengthMs: 5 * 60 * 60 * 1000 };
-    expect(headroom({ weekly: week(10), short }, midweek)).toEqual({ points: 15, closed: "short_window" });
+    expect(headroom({ weekly: week(10), short }, midweek)).toEqual({ points: 25, closed: "short_window" });
     expect(headroom({ weekly: week(10), short: { ...short, usedPercent: 49 } }, midweek).closed).toBeNull();
   });
 });

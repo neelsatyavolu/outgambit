@@ -52,7 +52,8 @@ played is always finished. The figures are in `lib/config.ts` and the code in
 - **ChatGPT and Grok** spend the owner's subscription. Gambit reads the
   subscription's own weekly meter and only starts a game while it is under a
   line that rises to 50% at the weekly reset, so the owner's own use counts
-  and Gambit can never take the week past half. ChatGPT's five-hour window
+  and Gambit can never take the week past half. The line runs 10 points ahead
+  of an even pace, so a busy start to the week does not close play. ChatGPT's five-hour window
   must also be under half. If the meter cannot be read for an hour, no game
   starts until it can.
 - **Gemini and OpenRouter** stop at their free limits: OpenRouter's 50 requests

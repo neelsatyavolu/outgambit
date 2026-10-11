@@ -118,7 +118,7 @@ describe("with the day's games", () => {
   it("works out every offered model's allowance for a visitor", async () => {
     await played("me");
     await played("someone");
-    const usage = { meter: async () => ({ value: meterAt(21), readAt: NOON, error: null }), openRouterCap: async () => 50 };
+    const usage = { meter: async () => ({ value: meterAt(31), readAt: NOON, error: null }), openRouterCap: async () => 50 };
     const models = [
       { provider: "jev", id: "jev-latest" }, { provider: "codex", id: "gpt-a" }, { provider: "fake", id: "fake-1" },
     ] as const;

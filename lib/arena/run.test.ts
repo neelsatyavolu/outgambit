@@ -115,8 +115,8 @@ describe("startArenaGame", () => {
       await insertGame(db, makeGame({ provider: "codex", model: "gpt-a", status: "finished", ply: 80, day: "2026-10-08", createdAt: NOON - 86_400_000 }));
     }
     // Both models draw on the one meter, so a game between them needs room for two.
-    expect(await startArenaGame(metered(23).deps)).toEqual({ ok: false, reason: "no_pairing" });
-    expect((await startArenaGame(metered(22).deps)).ok).toBe(true);
+    expect(await startArenaGame(metered(33).deps)).toEqual({ ok: false, reason: "no_pairing" });
+    expect((await startArenaGame(metered(32).deps)).ok).toBe(true);
   });
 
   it("counts a game that was called off after moves were played, since those were paid for", async () => {
