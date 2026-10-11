@@ -1,9 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { resetDb, testDb } from "@/test/db";
+import { counting, resetDb, testDb } from "@/test/db";
 import { NOON } from "@/test/factory";
 import { harness, input } from "@/test/game";
 import type { Db } from "../db/client";
 import { getGame, listMoves } from "../db/games";
+import { usageSince } from "../db/usage";
 import { createGame } from "./create";
 import { playerMove, resign } from "./move";
 
@@ -113,6 +114,34 @@ describe("playerMove", () => {
     const id = await start(h);
     await resign(h.deps, id, "player-1");
     expect(await playerMove(h.deps, id, "player-1", "e2e4", 0)).toEqual({ ok: false, error: "not_active" });
+  });
+
+  // Every trip is a few milliseconds the player waits for the reply in a one-minute game.
+  it("plays the move and a fast opponent's paid reply in six trips to the database", async () => {
+    const counted = counting(db);
+    const h = harness(counted.db, ["e5"]);
+    const id = await start(h, { provider: "jev", model: "jev-latest", timeControl: "1+0" });
+    const before = counted.trips();
+    expect(await playerMove(h.deps, id, "player-1", "e2e4", 0)).toEqual({ ok: true });
+    expect(counted.trips() - before).toBeLessThanOrEqual(6);
+    expect((await listMoves(db, id)).map((m) => m.san)).toEqual(["e4", "e5"]);
+    expect(await usageSince(db, "2026-10-09")).toMatchObject([{ provider: "jev", calls: 1 }]);
+  });
+
+  it("refuses a move when the moves it read are not the whole game", async () => {
+    // A reply saved between the two reads would leave the move list one short of the game.
+    const behind: Db = {
+      ...db,
+      query: async <T>(sql: string, params?: unknown[]) => {
+        const rows = await db.query<T>(sql, params);
+        return sql.includes("FROM moves") ? rows.slice(0, -1) : rows;
+      },
+    };
+    const h = harness(behind, ["e5"]);
+    const id = await start(h);
+    await playerMove(h.deps, id, "player-1", "e2e4", 0);
+    expect(await playerMove(h.deps, id, "player-1", "d2d4", 2)).toEqual({ ok: false, error: "stale" });
+    expect((await getGame(db, id))?.ply).toBe(2);
   });
 });
 

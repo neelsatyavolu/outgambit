@@ -87,6 +87,6 @@ export async function createGame(deps: Deps, input: CreateInput): Promise<Create
   });
   if (refusal) return refusal;
 
-  if (game.playerColor === "black") await startAiTurn(deps, game);
+  if (game.playerColor === "black") await startAiTurn(deps, game, []);
   return { ok: true, game };
 }

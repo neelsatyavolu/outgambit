@@ -25,6 +25,29 @@ export async function resetDb(db: Db): Promise<void> {
 }
 
 /**
+ * The same database, counting the trips made to it: one for each statement,
+ * and two more for a transaction, which is opened and closed on its own.
+ */
+export function counting(db: Db): { db: Db; trips: () => number } {
+  let trips = 0;
+  const counted = <Q extends Db["query"]>(query: Q): Q =>
+    ((sql: string, params?: unknown[]) => {
+      trips += 1;
+      return query(sql, params);
+    }) as Q;
+  return {
+    db: {
+      query: counted(db.query),
+      transaction: (fn) => {
+        trips += 2;
+        return db.transaction((tx) => fn({ query: counted(tx.query) }));
+      },
+    },
+    trips: () => trips,
+  };
+}
+
+/**
  * The same database, but pausing after any query inside a transaction that
  * matches `pattern`. Holding a transaction open between its read and its
  * write is what makes a missing lock show up as a failed test on a real

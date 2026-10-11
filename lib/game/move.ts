@@ -21,10 +21,12 @@ export async function playerMove(
   move: string,
   seenPly: number,
 ): Promise<MoveOutcome> {
-  const game = await getGame(deps.db, gameId);
+  // Read together: the player is waiting on this, and each read is a trip to the database.
+  const [game, moves] = await Promise.all([getGame(deps.db, gameId), listMoves(deps.db, gameId)]);
   if (!game || game.playerId !== playerId) return refuse("not_found");
   if (game.status !== "active") return refuse("not_active");
-  if (game.ply !== seenPly) return refuse("stale");
+  // A move saved between the two reads leaves them describing different positions.
+  if (game.ply !== seenPly || moves.length !== game.ply) return refuse("stale");
   if (turnAt(game.ply) !== game.playerColor) return refuse("not_your_turn");
 
   const now = deps.now();
@@ -36,21 +38,27 @@ export async function playerMove(
     return refuse("out_of_time");
   }
 
-  const history = (await listMoves(deps.db, game.id)).map((m) => m.san);
+  const history = moves.map((m) => m.san);
   const applied = applyMove(history, move);
   if (!applied) return refuse("illegal_move");
 
+  const whiteMs = isWhite ? charge.nextMs : game.whiteMs;
+  const blackMs = isWhite ? game.blackMs : charge.nextMs;
   const committed = await commitMove(deps.db, {
     gameId: game.id,
     expectedPly: game.ply,
     move: { san: applied.san, uci: applied.uci, fenAfter: applied.fen, spentMs: charge.spentMs },
-    whiteMs: isWhite ? charge.nextMs : game.whiteMs,
-    blackMs: isWhite ? game.blackMs : charge.nextMs,
+    whiteMs,
+    blackMs,
     now,
     ...(applied.outcome ? { finish: { status: "finished" as const, ...applied.outcome } } : {}),
   });
   if (!committed) return refuse("stale");
-  if (!applied.outcome) await startAiTurn(deps, game);
+  if (!applied.outcome) {
+    // The game as that commit left it, so a fast opponent can answer without reading it back.
+    const next = { ...game, fen: applied.fen, ply: game.ply + 1, whiteMs, blackMs, turnStartedAt: now, aiLeaseUntil: null };
+    await startAiTurn(deps, next, [...history, applied.san]);
+  }
   return { ok: true };
 }
 

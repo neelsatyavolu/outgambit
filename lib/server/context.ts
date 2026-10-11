@@ -11,6 +11,7 @@ import { sessionVersionOf } from "../db/users";
 import type { Deps } from "../game/deps";
 import { clientIp, fail, hashIp, isPlayerId, sameOrigin } from "../http";
 import { findOffered } from "../owner/catalog";
+import type { KeyCache } from "../owner/credentials";
 import { OWNER_COOKIE, isValidSession } from "../owner/session";
 
 export const PLAYER_COOKIE = "gambit_player";
@@ -18,13 +19,16 @@ const YEAR_SECONDS = 365 * 24 * 60 * 60;
 
 export const secureCookies = (): boolean => process.env.NODE_ENV === "production";
 
+/** API keys this server instance has read in the last minute. */
+const keys: KeyCache = new Map();
+
 /** The game service wired to the real database, clock and providers. */
 export async function buildDeps(): Promise<Deps> {
   const db = await getDb();
   return {
     db,
     now: Date.now,
-    adapterFor: (seat, options) => getAdapter(db, seat.provider, Date.now(), fetch, options),
+    adapterFor: (seat, options) => getAdapter(db, seat.provider, Date.now(), fetch, { ...options, keys }),
     schedule: (job) =>
       after(async () => {
         try {
@@ -69,17 +73,21 @@ export async function startAccountSession(userId: string): Promise<void> {
   });
 }
 
+export type Visitor = { userId: string | null; playerId: string | undefined };
+
 /**
- * The id this visitor plays under: their account when signed in, otherwise
- * the anonymous id in their cookie. `create` issues one if they have neither.
+ * Who is asking: the account they are signed in to, if any, and the id they
+ * play under, which is that account or else the anonymous id in their cookie.
+ * `create` issues an anonymous id if they have neither. The session is read
+ * once here, where asking for the account and the player apart reads it twice.
  */
-export async function playerId(options: { create: boolean }): Promise<string | undefined> {
+export async function visitor(options: { create: boolean }): Promise<Visitor> {
   const jar = await cookies();
-  const account = await accountBehind(jar.get(ACCOUNT_COOKIE)?.value);
-  if (account) return accountPlayerId(account);
+  const userId = await accountBehind(jar.get(ACCOUNT_COOKIE)?.value);
+  if (userId) return { userId, playerId: accountPlayerId(userId) };
   const existing = jar.get(PLAYER_COOKIE)?.value;
-  if (isPlayerId(existing)) return existing;
-  if (!options.create) return undefined;
+  if (isPlayerId(existing)) return { userId, playerId: existing };
+  if (!options.create) return { userId, playerId: undefined };
   const id = randomUUID();
   jar.set(PLAYER_COOKIE, id, {
     httpOnly: true,
@@ -88,7 +96,12 @@ export async function playerId(options: { create: boolean }): Promise<string | u
     path: "/",
     maxAge: YEAR_SECONDS,
   });
-  return id;
+  return { userId, playerId: id };
+}
+
+/** The id this visitor plays under. See `visitor`. */
+export async function playerId(options: { create: boolean }): Promise<string | undefined> {
+  return (await visitor(options)).playerId;
 }
 
 export const ipHashOf = (request: Request): string => hashIp(clientIp(request));

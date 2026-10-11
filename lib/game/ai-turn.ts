@@ -13,9 +13,13 @@ import type { Deps } from "./deps";
 import { dayKey } from "./limits";
 import { opposite, turnAt, type Color, type Game, type Provider, type Seat } from "./types";
 
-/** Runs the AI's turn now for a fast opponent, or after the response for a slow one. */
-export async function startAiTurn(deps: Deps, game: Pick<Game, "id" | "provider">): Promise<void> {
-  if (isFastProvider(game.provider)) await runAiTurn(deps, game.id);
+/**
+ * Runs the AI's turn now for a fast opponent, or after the response for a slow
+ * one. `game` and `history` are the game as the caller has just saved it,
+ * which saves a fast opponent reading them back while the player waits.
+ */
+export async function startAiTurn(deps: Deps, game: Game, history: readonly string[]): Promise<void> {
+  if (isFastProvider(game.provider)) await runAiTurn(deps, game.id, { game, history });
   else deps.schedule(() => runAiTurn(deps, game.id));
 }
 
@@ -118,10 +122,18 @@ async function play(deps: Deps, game: Game, mover: Color, history: string[], san
  * One job cannot run for ever, so a runner that has no room left for another
  * full call gives up its lease and lets the next poll start a new runner.
  * The counts of failed attempts are kept in the database across that hand-over.
+ *
+ * `saved` is the game and its moves as the caller has just written them. It
+ * is trusted only as far as the lease: a game that has since moved on or
+ * ended is refused there.
  */
-export async function runAiTurn(deps: Deps, gameId: string): Promise<void> {
+export async function runAiTurn(
+  deps: Deps,
+  gameId: string,
+  saved?: { game: Game; history: readonly string[] },
+): Promise<void> {
   const jobDeadline = deps.now() + AI_JOB_BUDGET_MS;
-  const game = await getGame(deps.db, gameId);
+  const game = saved?.game ?? (await getGame(deps.db, gameId));
   if (!game || game.status !== "active") return;
   const mover = turnAt(game.ply);
   if (mover === game.playerColor) return;
@@ -131,7 +143,7 @@ export async function runAiTurn(deps: Deps, gameId: string): Promise<void> {
   let lease = leaseUntil(started, startedWith, game.provider);
   if (!(await claimLease(deps.db, game.id, game.ply, started, lease))) return;
 
-  const history = (await listMoves(deps.db, game.id)).map((m) => m.san);
+  const history = saved ? [...saved.history] : (await listMoves(deps.db, game.id)).map((m) => m.san);
   let rejected: string | undefined;
   let refresh = false;
   for (let attempt = 0; ; attempt++) {
@@ -145,8 +157,12 @@ export async function runAiTurn(deps: Deps, gameId: string): Promise<void> {
       lease = next;
     }
     const result = await ask(deps, game, { history, rejected, leftMs, refresh });
+    if (result.kind === "move") {
+      // Counted while the move is saved, not before it: the count is not something the player should wait for.
+      await Promise.all([play(deps, game, mover, history, result.san), noteUsage(deps, game, result)]);
+      return;
+    }
     await noteUsage(deps, game, result);
-    if (result.kind === "move") return play(deps, game, mover, history, result.san);
 
     const why = result.kind === "provider_error" ? result.message : null;
     const counts = await recordAttempt(deps.db, game.id, game.ply, lease, result.kind, why);
