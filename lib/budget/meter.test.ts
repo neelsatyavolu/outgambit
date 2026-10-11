@@ -80,8 +80,15 @@ describe("parseGrokBilling", () => {
     });
   });
 
-  it("is null when the percent or the period is missing", () => {
-    expect(parseGrokBilling({ config: { currentPeriod: period } })).toBeNull();
+  it("reads a period with no percent as nothing used, since Grok leaves a zero out", () => {
+    expect(parseGrokBilling({ config: { currentPeriod: period } })).toEqual({
+      weekly: { usedPercent: 0, resetsAt: Date.parse(period.end), lengthMs: WEEK },
+      short: null,
+    });
+  });
+
+  it("is null when the period is missing or the percent is not a number", () => {
+    expect(parseGrokBilling({ config: { currentPeriod: period, creditUsagePercent: "1" } })).toBeNull();
     expect(parseGrokBilling({ config: { creditUsagePercent: 1 } })).toBeNull();
     expect(parseGrokBilling({ config: { creditUsagePercent: 1, currentPeriod: { ...period, end: period.start } } })).toBeNull();
     expect(parseGrokBilling({})).toBeNull();

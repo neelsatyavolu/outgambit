@@ -61,15 +61,20 @@ export function parseCodexUsage(body: unknown): Meter | null {
 
 type GrokBilling = { config?: { creditUsagePercent?: unknown; currentPeriod?: { start?: unknown; end?: unknown } } };
 
-/** Reads Grok's billing report: one usage period, with the percent of it used. Null if it does not say. */
+/**
+ * Reads Grok's billing report: one usage period, with the percent of it used.
+ * Grok leaves the percent out when it is zero, as its own web client reads it.
+ * Null if the report does not give the period.
+ */
 export function parseGrokBilling(body: unknown): Meter | null {
   const config = (body as GrokBilling | null)?.config;
   const period = config?.currentPeriod;
-  if (!isNumber(config?.creditUsagePercent) || typeof period?.start !== "string" || typeof period.end !== "string") return null;
+  const usedPercent = config?.creditUsagePercent ?? 0;
+  if (!isNumber(usedPercent) || typeof period?.start !== "string" || typeof period.end !== "string") return null;
   const start = Date.parse(period.start);
   const end = Date.parse(period.end);
   if (!(end > start)) return null;
-  return { weekly: { usedPercent: config.creditUsagePercent, resetsAt: end, lengthMs: end - start }, short: null };
+  return { weekly: { usedPercent, resetsAt: end, lengthMs: end - start }, short: null };
 }
 
 /** Fetches a report and reads it. A string is a few fixed words saying what went wrong. */
