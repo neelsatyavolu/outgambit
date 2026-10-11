@@ -1,12 +1,16 @@
 import type { MoveResult } from "../ai/types";
+import { budgetPool } from "../budget/pools";
+import { pausePool } from "../budget/supply";
 import { chargeMove, remainingMs } from "../chess/clock";
 import { applyMove, replay } from "../chess/rules";
 import {
-  AI_JOB_BUDGET_MS, CREDENTIAL_ALLOWANCE_MS, FAST_CALL_TIMEOUT_MS, LEASE_MARGIN_MS, LLM_CALL_TIMEOUT_MS,
+  AI_JOB_BUDGET_MS, BUDGET, CREDENTIAL_ALLOWANCE_MS, FAST_CALL_TIMEOUT_MS, LEASE_MARGIN_MS, LLM_CALL_TIMEOUT_MS,
   MAX_INVALID_REPLIES, MAX_PROVIDER_FAILURES, isFastProvider,
 } from "../config";
 import { claimLease, commitMove, finishGame, getGame, listMoves, recordAttempt, renewLease } from "../db/games";
+import { recordUsage } from "../db/usage";
 import type { Deps } from "./deps";
+import { dayKey } from "./limits";
 import { opposite, seatOf, turnAt, type Color, type Game, type Provider, type Seat } from "./types";
 
 /** Runs the AI's turn now for a fast opponent, or after the response for a slow one. */
@@ -46,11 +50,13 @@ function abort(deps: Deps, game: Game): Promise<boolean> {
 
 type Ask = { history: string[]; rejected?: string; leftMs: number; refresh: boolean };
 
+const NOT_CONNECTED = "not connected";
+
 /** Asks the model for one move. Anything that stops it answering is a provider error. */
 async function ask(deps: Deps, seat: Seat, a: Ask): Promise<MoveResult> {
   try {
     const adapter = await deps.adapterFor(seat, { refresh: a.refresh });
-    if (!adapter) return { kind: "provider_error", message: "not connected" };
+    if (!adapter) return { kind: "provider_error", message: NOT_CONNECTED };
     const position = replay(a.history);
     return await adapter({
       fen: position.fen,
@@ -65,6 +71,22 @@ async function ask(deps: Deps, seat: Seat, a: Ask): Promise<MoveResult> {
     });
   } catch {
     return { kind: "provider_error", message: "adapter failed" };
+  }
+}
+
+/**
+ * Counts a call against the model's budget. A paid call that does not say
+ * what it used is charged as an ordinary one, so the daily cap still closes
+ * if a provider stops reporting. A free budget whose provider says "too many
+ * requests" has hit a limit Gambit could not see, so it is closed for a while.
+ */
+async function noteUsage(deps: Deps, seat: Seat, result: MoveResult): Promise<void> {
+  const pool = budgetPool(seat.provider, seat.model);
+  if (!pool || (result.kind === "provider_error" && result.message === NOT_CONNECTED)) return;
+  const now = deps.now();
+  await recordUsage(deps.db, dayKey(now), seat, result.inputTokens ?? (pool.kind === "cents" ? BUDGET.tokensPerCall : 0));
+  if (pool.kind === "requests" && result.kind === "provider_error" && result.message === "HTTP 429") {
+    await pausePool(deps.db, pool, now);
   }
 }
 
@@ -132,6 +154,7 @@ export async function runAiTurn(
       lease = next;
     }
     const result = await ask(deps, seat, { history, rejected, leftMs, refresh });
+    await noteUsage(deps, seat, result);
     if (result.kind === "move") return play(deps, game, mover, history, result.san);
 
     const why = result.kind === "provider_error" ? result.message : null;

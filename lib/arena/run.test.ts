@@ -1,11 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { resetDb, testDb } from "@/test/db";
 import { makeGame, NOON } from "@/test/factory";
-import { FAST, SLOW, harness, type Reply } from "@/test/game";
+import { FAST, PAID, SLOW, harness, meterAt, type Reply } from "@/test/game";
 import { ARENA } from "../config";
 import type { Db } from "../db/client";
-import { countForDay, expireOverdue, getGame, insertGame, listMoves } from "../db/games";
+import { expireOverdue, getGame, insertGame, listMoves } from "../db/games";
 import { listModelRatings } from "../db/ratings";
+import { gameCounts } from "../db/usage";
 import { getGameView } from "../game/state";
 import type { Game } from "../game/types";
 import type { OfferedModel } from "../owner/catalog";
@@ -46,11 +47,11 @@ describe("startArenaGame", () => {
     const game = await started(h);
     expect(game).toMatchObject({
       playerId: ARENA_PLAYER, timeControl: ARENA.timeControls.bullet, playerColor: "white", status: "active",
-      whiteMs: 180_000, blackMs: 180_000,
+      whiteMs: 60_000, blackMs: 60_000,
     });
     expect([game.rival!.model, game.model].sort()).toEqual(["fake-1", "fake-2"]);
     expect(await getGame(db, game.id)).toEqual(game);
-    expect(await countForDay(db, game.day, ARENA_PLAYER, ARENA_PLAYER)).toEqual({ global: 0, player: 0, ip: 0 });
+    expect(await gameCounts(db, game.day, ARENA_PLAYER, ARENA_PLAYER, NOON)).toMatchObject([{ total: 0, player: 0, ip: 0, active: 1 }]);
   });
 
   it("plays a model with effort levels at the arena's effort, in the pool it can play", async () => {
@@ -58,6 +59,13 @@ describe("startArenaGame", () => {
     expect(game.timeControl).toBe(ARENA.timeControls.regular);
     const slow = game.model === "gpt-a" ? game : game.rival!;
     expect(slow.effort).toBe(ARENA.effort);
+  });
+
+  it("plays a model that is too slow at the arena's effort at low", async () => {
+    const grok: OfferedModel = { ...SLOW, provider: "grok", id: "grok-4.7", label: "Grok 4.7" };
+    const game = await started(arena([], [grok, SLOW]));
+    const seat = game.model === "grok-4.7" ? game : game.rival!;
+    expect(seat.effort).toBe("low");
   });
 
   it("runs one game at a time", async () => {
@@ -87,6 +95,28 @@ describe("startArenaGame", () => {
   it("needs two models that share a pool", async () => {
     expect(await startArenaGame(arena([], [FAST]).deps)).toEqual({ ok: false, reason: "no_pairing" });
     expect(await startArenaGame(arena([], []).deps)).toEqual({ ok: false, reason: "no_pairing" });
+  });
+
+  it("leaves out a model whose budget has nothing to spare", async () => {
+    // Jev has spent today's ten cents, so the scripted model has nobody to play.
+    await db.query("INSERT INTO usage (day, provider, model, calls, input_tokens) VALUES ('2026-10-09', 'jev', 'jev-latest', 1600, 2400000)");
+    expect(await startArenaGame(arena([], [FAST, PAID]).deps)).toEqual({ ok: false, reason: "no_pairing" });
+    await db.query("DELETE FROM usage");
+    expect((await startArenaGame(arena([], [FAST, PAID]).deps)).ok).toBe(true);
+  });
+
+  it("leaves a budget's games for the players who usually use them", async () => {
+    const metered = (usedPercent: number) => {
+      const meter = async () => ({ value: meterAt(usedPercent), readAt: NOON, error: null });
+      return harness(db, [], { entrants: async () => [SLOW, { ...SLOW, id: "gpt-b", label: "GPT B" }], usage: { meter, openRouterCap: async () => 1000 } });
+    };
+    // Players have started a game a day against the subscription, and half of today is left: one game is theirs.
+    for (let i = 0; i < 7; i++) {
+      await insertGame(db, makeGame({ provider: "codex", model: "gpt-a", status: "finished", ply: 80, day: "2026-10-08", createdAt: NOON - 86_400_000 }));
+    }
+    // Both models draw on the one meter, so a game between them needs room for two.
+    expect(await startArenaGame(metered(23).deps)).toEqual({ ok: false, reason: "no_pairing" });
+    expect((await startArenaGame(metered(22).deps)).ok).toBe(true);
   });
 
   it("counts a game that was called off after moves were played, since those were paid for", async () => {
@@ -148,8 +178,8 @@ describe("driveArenaGame", () => {
     h.clock.now += 60 * MINUTE;
     expect(await expireOverdue(db, h.clock.now)).toBe(0);
     await driveArenaGame(h.deps, game.id, h.clock.now + MINUTE);
-    expect(await getGame(db, game.id)).toMatchObject({ status: "finished", whiteMs: 172_000, blackMs: 172_000 });
-    expect(h.requests.map((r) => r.remainingMs)).toEqual([180_000, 180_000, 176_000, 176_000]);
+    expect(await getGame(db, game.id)).toMatchObject({ status: "finished", whiteMs: 52_000, blackMs: 52_000 });
+    expect(h.requests.map((r) => r.remainingMs)).toEqual([60_000, 60_000, 56_000, 56_000]);
   });
 
   it("stops while there is no room for another call, and carries on in the next run", async () => {
@@ -242,7 +272,7 @@ describe("watching an arena game", () => {
     const view = await getGameView(h.deps, game.id, { owner: false });
     expect(view).toMatchObject({
       status: "active", modelLabel: game.modelLabel, rival: { label: game.rival!.modelLabel, effort: null },
-      whiteMs: 180_000, blackMs: 180_000,
+      whiteMs: 60_000, blackMs: 60_000,
     });
     expect(h.jobs).toHaveLength(0);
   });

@@ -1,3 +1,4 @@
+import { effortFor } from "../config";
 import type { Effort } from "../game/types";
 import type { OfferedModel } from "../owner/catalog";
 import type { RatedModel } from "./board";
@@ -10,9 +11,9 @@ export function ratingFor(
   effort: Effort,
   pool: Pool,
 ): RatedModel | undefined {
-  const lines = ratings.filter(
-    (r) => r.provider === model.provider && r.id === model.id && r.effort === (model.supportsEffort ? effort : null),
-  );
+  // A model that does not offer the chosen effort is rated at the one it would be played at.
+  const played = model.supportsEffort ? effortFor(model.provider, model.id, effort) : null;
+  const lines = ratings.filter((r) => r.provider === model.provider && r.id === model.id && r.effort === played);
   return lines.find((r) => r.pool === pool) ?? lines.find((r) => r.pool === "regular");
 }
 

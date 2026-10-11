@@ -1,4 +1,5 @@
 import type { Adapter } from "../ai/types";
+import type { UsageSource } from "../budget/supply";
 import type { Db } from "../db/client";
 import type { OfferedModel } from "../owner/catalog";
 import type { Provider } from "./types";
@@ -18,5 +19,7 @@ export type Deps = {
   findModel: (provider: Provider, id: string) => Promise<OfferedModel | null>;
   /** The models that play each other in the arena. */
   entrants: () => Promise<OfferedModel[]>;
+  /** What the providers say has been used of the owner's accounts. */
+  usage: UsageSource;
   random: () => number;
 };

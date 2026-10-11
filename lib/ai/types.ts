@@ -16,9 +16,13 @@ export type MoveRequest = {
   signal: AbortSignal;
 };
 
-export type MoveResult =
+export type MoveResult = (
   | { kind: "move"; san: string }
   | { kind: "invalid"; raw: string }
-  | { kind: "provider_error"; message: string };
+  | { kind: "provider_error"; message: string }
+) & {
+  /** The input tokens the call was billed for, from providers that charge by them and say. */
+  inputTokens?: number;
+};
 
 export type Adapter = (request: MoveRequest) => Promise<MoveResult>;

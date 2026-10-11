@@ -1,9 +1,6 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { resetDb, testDb } from "@/test/db";
-import { makeGame, NOON } from "@/test/factory";
-import type { Db } from "../db/client";
-import { insertGame } from "../db/games";
-import { capacity, dayKey, nextResetAt } from "./limits";
+import { describe, expect, it } from "vitest";
+import { NOON } from "@/test/factory";
+import { dayKey, nextResetAt } from "./limits";
 
 const utc = (y: number, m: number, d: number, h: number, min = 0) => Date.UTC(y, m - 1, d, h, min);
 
@@ -38,39 +35,5 @@ describe("nextResetAt", () => {
   it("handles the 23-hour day when clocks go forward", () => {
     // 2026-03-08 00:30 PST; the day ends at 00:00 PDT on the 9th, 22.5 hours later.
     expect(nextResetAt(utc(2026, 3, 8, 8, 30))).toBe(utc(2026, 3, 9, 7));
-  });
-});
-
-describe("capacity", () => {
-  let db: Db;
-  beforeAll(async () => {
-    db = await testDb();
-  });
-  beforeEach(() => resetDb(db));
-
-  it("reports a fresh day as open", async () => {
-    expect(await capacity(db, "a", "x", NOON)).toEqual({
-      player: { used: 0, limit: 5 }, global: { used: 0, limit: 12 }, resetAt: nextResetAt(NOON), blocked: null,
-    });
-  });
-
-  it("blocks a player who has used all five games", async () => {
-    for (let i = 0; i < 5; i++) await insertGame(db, makeGame({ playerId: "a", ipHash: `i${i}`, status: "finished" }));
-    expect(await capacity(db, "a", "x", NOON)).toMatchObject({ player: { used: 5, limit: 5 }, blocked: "player" });
-  });
-
-  it("blocks a network that has used ten games, and shows that player as full", async () => {
-    for (let i = 0; i < 10; i++) await insertGame(db, makeGame({ playerId: `p${i}`, ipHash: "x", status: "finished" }));
-    expect(await capacity(db, "a", "x", NOON)).toMatchObject({ player: { used: 5, limit: 5 }, blocked: "network" });
-  });
-
-  it("blocks everyone once twelve games have been played", async () => {
-    for (let i = 0; i < 12; i++) await insertGame(db, makeGame({ playerId: `p${i}`, ipHash: `i${i}`, status: "finished" }));
-    expect(await capacity(db, "a", "x", NOON)).toMatchObject({ global: { used: 12, limit: 12 }, blocked: "global" });
-  });
-
-  it("does not count yesterday's games", async () => {
-    await insertGame(db, makeGame({ playerId: "a", day: "2026-10-08", status: "finished" }));
-    expect((await capacity(db, "a", "x", NOON)).player.used).toBe(0);
   });
 });

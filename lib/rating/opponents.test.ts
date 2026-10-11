@@ -29,9 +29,15 @@ describe("ratingFor", () => {
   });
 
   it("uses the chosen effort only for models that have one", () => {
-    const withEffort = [line("thinker", "regular", 1100, "low"), line("thinker", "regular", 1300, "high")];
-    expect(ratingFor(withEffort, model("thinker", SLOW, true), "high", "regular")?.rating).toBe(1300);
+    const withEffort = [line("thinker", "regular", 1100, "low"), line("thinker", "regular", 1300, "medium")];
+    expect(ratingFor(withEffort, model("thinker", SLOW, true), "medium", "regular")?.rating).toBe(1300);
     expect(ratingFor(withEffort, model("thinker", SLOW, true), "low", "regular")?.rating).toBe(1100);
+  });
+
+  it("uses the effort a model is played at when it does not offer the chosen one", () => {
+    const grok = { ...model("grok-4.7", SLOW, true), provider: "grok" } as OfferedModel;
+    const lines = [{ ...line("grok-4.7", "regular", 880, "low"), provider: "grok" } as RatedModel];
+    expect(ratingFor(lines, grok, "medium", "regular")?.rating).toBe(880);
   });
 });
 
@@ -68,12 +74,12 @@ describe("opponentGroups", () => {
     const thinkers = [model("a", SLOW, true), model("b", SLOW, true)];
     const byEffort = [
       line("a", "regular", 1500, "low"),
-      line("a", "regular", 1000, "high"),
+      line("a", "regular", 1000, "medium"),
       line("b", "regular", 1200, "low"),
-      line("b", "regular", 1300, "high"),
+      line("b", "regular", 1300, "medium"),
     ];
     expect(opponentGroups(thinkers, byEffort, "low")[0].opponents.map((o) => o.model.id)).toEqual(["a", "b"]);
-    expect(opponentGroups(thinkers, byEffort, "high")[0].opponents.map((o) => o.model.id)).toEqual(["b", "a"]);
+    expect(opponentGroups(thinkers, byEffort, "medium")[0].opponents.map((o) => o.model.id)).toEqual(["b", "a"]);
   });
 
   it("keeps a model with no rating line, after the rated ones", () => {

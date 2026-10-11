@@ -57,6 +57,7 @@ const OWNER_ROUTES: Route[] = [
   { name: "arena status", method: "GET", path: "/api/owner/arena", load: () => import("./owner/arena/route") },
   { name: "change the arena", method: "PATCH", path: "/api/owner/arena", load: () => import("./owner/arena/route") },
   { name: "start an arena game", method: "POST", path: "/api/owner/arena", load: () => import("./owner/arena/route") },
+  { name: "usage", method: "GET", path: "/api/owner/usage", load: () => import("./owner/usage/route") },
 ];
 
 const id = { id: randomUUID() };
@@ -179,7 +180,7 @@ describe("player routes", () => {
   it("gives a new visitor an id cookie scripts cannot read", async () => {
     const { GET } = await import("./lobby/route");
     const response = await GET(request("GET", "/api/lobby", { origin: null, ip: "198.51.100.30" }));
-    expect((await response.json()).data.capacity.player).toEqual({ used: 0, limit: 5 });
+    expect((await response.json()).data).toMatchObject({ models: [], budgets: {}, resetAt: expect.any(Number) });
     expect(jar.get(PLAYER_COOKIE)?.options).toMatchObject({ httpOnly: true, sameSite: "lax", path: "/" });
   });
 
@@ -227,6 +228,13 @@ describe("player routes", () => {
     expect(await response.json()).toEqual({ success: false, error: "Create an account or sign in to play." });
   });
 
+  it("refuses high effort, which is no longer on offer", async () => {
+    vi.stubEnv("GAMBIT_FAKE_AI", "1");
+    await register(someone(), "198.51.100.38");
+    expect((await postGame("198.51.100.38", { ...GAME, effort: "high" })).status).toBe(400);
+    expect((await postGame("198.51.100.38", { ...GAME, effort: "medium" })).status).toBe(201);
+  });
+
   it("does not let an account play before it has said how strong it is", async () => {
     vi.stubEnv("GAMBIT_FAKE_AI", "1");
     await register(someone(), "198.51.100.36");
@@ -260,6 +268,35 @@ describe("player routes", () => {
       expect.objectContaining({ provider: "fake", id: "fake-1", label: "Scripted", effort: null, pool, rating: expect.any(Number), games: expect.any(Number) });
     expect(data.ratings).toEqual(expect.arrayContaining([line("bullet"), line("regular")]));
     expect(data.ratings.map((r: { id: string }) => r.id).sort()).toEqual(["fake-1", "fake-1", "fake-2", "fake-2"]);
+  });
+
+  it("shows what is left of an opponent's budget, and refuses a game once it is spent", async () => {
+    const { getDb } = await import("@/lib/db/client");
+    const { saveSecret } = await import("@/lib/owner/credentials");
+    const db = await getDb();
+    const ip = "198.51.100.39";
+    const lobby = async () => (await (await import("./lobby/route")).GET(request("GET", "/api/lobby", { origin: null, ip }))).json();
+    const usage = async () => (await (await import("./owner/usage/route")).GET(request("GET", "/api/owner/usage", { origin: null }))).json();
+    const jev = { provider: "jev", model: "jev-latest", effort: null, timeControl: "1+0", color: "white" };
+    await register(someone(), ip);
+    await saveSecret(db, "jev", { kind: "key", apiKey: "k" }, Date.now());
+    try {
+      // Ten cents buys 39 games; the player's share of them depends on who else this file has had playing.
+      expect((await lobby()).data.budgets).toEqual({ "jev/jev-latest": { used: 0, limit: expect.any(Number), left: 39, blocked: null } });
+      const { dayKey } = await import("@/lib/game/limits");
+      await db.query("INSERT INTO usage (day, provider, model, calls, input_tokens) VALUES ($1, 'jev', 'jev-latest', 1600, 2400000)", [dayKey(Date.now())]);
+      expect((await lobby()).data.budgets["jev/jev-latest"]).toMatchObject({ left: 0, blocked: "daily_budget" });
+      const refused = await postGame(ip, jev);
+      expect(refused.status).toBe(429);
+      expect(await refused.json()).toEqual({ success: false, error: "This opponent has used its budget for today." });
+      signInAsOwner();
+      expect((await usage()).data).toEqual([
+        expect.objectContaining({ provider: "jev", id: "jev-latest", label: "Jev", kind: "cents", limit: 10, gamesLeft: 0, closed: "daily_budget" }),
+      ]);
+    } finally {
+      await db.query("DELETE FROM connections WHERE provider = 'jev'");
+      await db.query("DELETE FROM usage");
+    }
   });
 
   it("refuses the scripted opponent when it is switched off", async () => {
@@ -321,7 +358,7 @@ describe("the arena", () => {
     jar.clear();
     const seen = await (await view(gameId)).json();
     expect(seen.data).toMatchObject({ status: "active", rival: { effort: null } });
-    expect(["3+0", "10+10"]).toContain(seen.data.timeControl);
+    expect(["1+0", "20+20"]).toContain(seen.data.timeControl);
     expect([seen.data.modelLabel, seen.data.rival.label].sort()).toEqual(["Rehearsed", "Scripted"]);
     // Nobody can move in it or resign it.
     expect((await move(gameId, { move: "e2e4", ply: 0 })).status).toBe(404);

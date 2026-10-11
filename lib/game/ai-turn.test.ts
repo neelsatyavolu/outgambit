@@ -4,9 +4,10 @@ import { NOON } from "@/test/factory";
 import { harness, input, type Reply } from "@/test/game";
 import type { Db } from "../db/client";
 import { getGame, listMoves } from "../db/games";
+import { gameCounts, usageSince } from "../db/usage";
 import { callTimeoutMs, runAiTurn } from "./ai-turn";
 import { createGame } from "./create";
-import { capacity } from "./limits";
+import { dayKey } from "./limits";
 import { playerMove } from "./move";
 import { getGameView } from "./state";
 
@@ -22,7 +23,7 @@ const failure = { kind: "provider_error", message: "HTTP 500" } as const;
 /** A slow-provider game where the player has played 1. e4 and the AI's reply is still queued. */
 async function afterE4(replies: Reply[], overrides = {}) {
   const h = harness(db, replies);
-  const created = await createGame(h.deps, input({ provider: "codex", model: "gpt-a", effort: "high", ...overrides }));
+  const created = await createGame(h.deps, input({ provider: "codex", model: "gpt-a", effort: "low", ...overrides }));
   if (!created.ok) throw new Error(created.error);
   await playerMove(h.deps, created.game.id, "player-1", "e2e4", 0);
   return { h, id: created.game.id };
@@ -34,7 +35,7 @@ describe("runAiTurn", () => {
     h.clock.now = NOON + 20_000;
     await h.runJobs();
     expect(h.requests[0]).toMatchObject({
-      history: ["e4"], color: "black", model: "gpt-a", effort: "high", remainingMs: 580_000,
+      history: ["e4"], color: "black", model: "gpt-a", effort: "low", remainingMs: 580_000,
     });
     expect(h.requests[0].legalMoves).toHaveLength(20);
     expect(await getGame(db, id)).toMatchObject({ ply: 2, blackMs: 590_000, turnStartedAt: NOON + 20_000 });
@@ -65,7 +66,7 @@ describe("runAiTurn", () => {
     await h.runJobs();
     expect(h.requests).toHaveLength(2);
     expect(await getGame(db, id)).toMatchObject({ status: "aborted", result: null, reason: "provider_error" });
-    expect((await capacity(db, "player-1", "ip-1", NOON)).player.used).toBe(0);
+    expect(await gameCounts(db, dayKey(NOON), "player-1", "ip-1", NOON)).toMatchObject([{ total: 0, player: 0 }]);
   });
 
   it("aborts when the provider is no longer connected", async () => {
@@ -230,5 +231,59 @@ describe("runAiTurn", () => {
     await playerMove(h.deps, id, "player-1", "g2g4", 2);
     await h.runJobs();
     expect(await getGame(db, id)).toMatchObject({ status: "finished", result: "black", reason: "checkmate" });
+  });
+});
+
+describe("what a turn uses", () => {
+  const today = () => usageSince(db, dayKey(NOON));
+
+  it("counts every call to a model, and the input tokens it was billed for", async () => {
+    const { h } = await afterE4([invalid("Qh4"), { kind: "move", san: "e5", inputTokens: 812 }]);
+    await h.runJobs();
+    expect(await today()).toEqual([{ day: "2026-10-09", provider: "codex", model: "gpt-a", calls: 2, tokens: 812 }]);
+  });
+
+  it("counts a call the provider refused, but not one that was never made", async () => {
+    const refused = await afterE4([failure, "e5"]);
+    await refused.h.runJobs();
+    expect(await today()).toMatchObject([{ calls: 2 }]);
+    await resetDb(db);
+    const unconnected = harness(db, [], { adapterFor: async () => null });
+    const created = await createGame(unconnected.deps, input({ provider: "codex", model: "gpt-a", effort: "low", color: "black" }));
+    expect(created.ok).toBe(true);
+    await unconnected.runJobs();
+    expect(await today()).toEqual([]);
+  });
+
+  it("charges a paid call that does not say what it used as an ordinary one", async () => {
+    const h = harness(db, ["e5", { kind: "move", san: "Nc6", inputTokens: 900 }]);
+    const created = await createGame(h.deps, input({ provider: "jev", model: "jev-latest", timeControl: "1+0" }));
+    const id = created.ok ? created.game.id : "";
+    await playerMove(h.deps, id, "player-1", "e2e4", 0);
+    await playerMove(h.deps, id, "player-1", "g1f3", 2);
+    expect(await today()).toEqual([{ day: "2026-10-09", provider: "jev", model: "jev-latest", calls: 2, tokens: 2_400 }]);
+  });
+
+  it("counts nothing for the scripted opponent", async () => {
+    const h = harness(db, ["e5"]);
+    const created = await createGame(h.deps, input());
+    await playerMove(h.deps, created.ok ? created.game.id : "", "player-1", "e2e4", 0);
+    expect(h.requests).toHaveLength(1);
+    expect(await today()).toEqual([]);
+  });
+
+  it("closes a free model's budget for an hour when its provider says too many requests", async () => {
+    const free = { provider: "openrouter", id: "some/model:free", label: "Free", supportsEffort: false, timeControls: ["20+20"] } as const;
+    const game = input({ provider: "openrouter", model: free.id, timeControl: "20+20" });
+    const limited = { kind: "provider_error", message: "HTTP 429" } as const;
+    const h = harness(db, [limited], { findModel: async () => ({ ...free, timeControls: [...free.timeControls] }) });
+    const created = await createGame(h.deps, game);
+    await playerMove(h.deps, created.ok ? created.game.id : "", "player-1", "e2e4", 0);
+    await h.runJobs();
+    expect(await getGame(db, created.ok ? created.game.id : "")).toMatchObject({ status: "aborted" });
+    const refused = { ok: false, error: "no_games_left", blocked: "rate_limited" };
+    expect(await createGame(h.deps, { ...game, playerId: "someone-else" })).toEqual(refused);
+    h.clock.now += 60 * 60_000;
+    expect((await createGame(h.deps, { ...game, playerId: "someone-else" })).ok).toBe(true);
   });
 });

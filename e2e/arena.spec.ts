@@ -27,7 +27,7 @@ test("the owner starts an arena game, and anyone can read the result", async ({ 
     await expect(game).toContainText(/won|draw/, { timeout: 2_000 });
   }).toPass({ timeout: 60_000 });
   // The arena picks the pool, so the test reads which one the game was played in.
-  const pool = (await game.textContent())!.includes("3+0") ? "Bullet" : "Regular";
+  const pool = (await game.textContent())!.includes("1+0") ? "Bullet" : "Regular";
   await game.click();
   await expect(visitor.getByTestId("result")).toContainText(/(Scripted|Rehearsed) won|Draw/);
   await expect(visitor.getByTestId("rating-change")).toContainText("Rehearsed");

@@ -1,12 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { pausingAfter, resetDb, testDb } from "@/test/db";
 import { NOON, START_FEN } from "@/test/factory";
-import { harness, input } from "@/test/game";
-import { LIMITS } from "../config";
+import { harness, input, meterAt } from "@/test/game";
 import type { Db } from "../db/client";
 import { finishGame, getGame } from "../db/games";
-import { createGame } from "./create";
-import { capacity } from "./limits";
+import { gameCounts } from "../db/usage";
+import { createGame, type CreateInput } from "./create";
+import { dayKey } from "./limits";
 
 let db: Db;
 beforeAll(async () => {
@@ -14,8 +14,19 @@ beforeAll(async () => {
 });
 beforeEach(() => resetDb(db));
 
+/** A game against the subscription model, whose budget is its provider's weekly meter. */
+const slow = (overrides: Partial<CreateInput> = {}): CreateInput =>
+  input({ provider: "codex", model: "gpt-a", effort: "low", timeControl: "20+20", ...overrides });
+
+/** A subscription half way through its week, with this much of the allowance used. */
+const metered = (usedPercent: number, shortPercent: number | null = null) => {
+  const h = harness(db);
+  const meter = async () => ({ value: meterAt(usedPercent, shortPercent), readAt: NOON, error: null });
+  return { ...h, deps: { ...h.deps, usage: { ...h.deps.usage, meter } } };
+};
+
 /** Creates a game and immediately ends it, so it counts but is not "active". */
-async function playOne(h: ReturnType<typeof harness>, overrides = {}) {
+async function playOne(h: Pick<ReturnType<typeof harness>, "deps">, overrides: Partial<CreateInput> = {}) {
   const created = await createGame(h.deps, input(overrides));
   if (created.ok) await finishGame(db, created.game.id, { status: "finished", result: "draw", reason: "stalemate" });
   return created;
@@ -48,15 +59,25 @@ describe("createGame", () => {
 
   it("keeps the chosen effort for a model that supports it, defaulting to medium", async () => {
     const h = harness(db);
-    const high = await createGame(h.deps, input({ provider: "codex", model: "gpt-a", effort: "high" }));
-    expect(high.ok && high.game.effort).toBe("high");
+    const low = await createGame(h.deps, input({ provider: "codex", model: "gpt-a", effort: "low" }));
+    expect(low.ok && low.game.effort).toBe("low");
     const unset = await createGame(h.deps, input({ playerId: "p2", provider: "codex", model: "gpt-a", effort: null }));
     expect(unset.ok && unset.game.effort).toBe("medium");
   });
 
+  it("plays a model that is too slow at medium at low, whatever is asked for", async () => {
+    const grok = { provider: "grok", id: "grok-4.7", label: "Grok 4.7", supportsEffort: true, timeControls: ["20+20"] } as const;
+    const h = harness(db, [], { findModel: async () => ({ ...grok, timeControls: [...grok.timeControls] }) });
+    const asked = { provider: "grok", model: "grok-4.7", timeControl: "20+20" } as const;
+    const medium = await createGame(h.deps, input({ ...asked, effort: "medium" }));
+    expect(medium.ok && medium.game.effort).toBe("low");
+    const unset = await createGame(h.deps, input({ ...asked, playerId: "p2", effort: null }));
+    expect(unset.ok && unset.game.effort).toBe("low");
+  });
+
   it("drops effort for a model that has none", async () => {
     const h = harness(db);
-    const created = await createGame(h.deps, input({ effort: "high" }));
+    const created = await createGame(h.deps, input({ effort: "low" }));
     expect(created.ok && created.game.effort).toBeNull();
   });
 
@@ -99,50 +120,70 @@ describe("createGame", () => {
     expect(first.ok && (await getGame(db, first.game.id))).toMatchObject({ status: "finished", reason: "timeout" });
   });
 
-  it("allows a player five games a day and refuses the sixth", async () => {
+  it("puts no limit on the scripted opponent, which costs nothing", async () => {
     const h = harness(db);
-    for (let i = 0; i < LIMITS.playerPerDay; i++) expect((await playOne(h)).ok).toBe(true);
-    expect(await createGame(h.deps, input())).toEqual({ ok: false, error: "player_limit" });
+    for (let i = 0; i < 15; i++) expect((await playOne(h)).ok).toBe(true);
   });
 
-  it("allows a network ten games a day and refuses the eleventh", async () => {
-    const h = harness(db);
-    for (let i = 0; i < LIMITS.ipPerDay; i++) expect((await playOne(h, { playerId: `p${i}` })).ok).toBe(true);
-    expect(await createGame(h.deps, input({ playerId: "one-more" }))).toEqual({ ok: false, error: "network_limit" });
+  it("refuses a subscription model once its weekly meter has caught up with the pace", async () => {
+    // Half way through the week, a quarter of the allowance may be used.
+    expect((await playOne(metered(24), slow())).ok).toBe(true);
+    expect(await createGame(metered(25).deps, slow())).toEqual({ ok: false, error: "no_games_left", blocked: "pace" });
   });
 
-  it("allows twelve games a day overall and refuses the thirteenth", async () => {
-    const h = harness(db);
-    for (let i = 0; i < LIMITS.globalPerDay; i++) expect((await playOne(h, { playerId: `p${i}`, ipHash: `i${i}` })).ok).toBe(true);
-    expect(await createGame(h.deps, input({ playerId: "late", ipHash: "new" }))).toEqual({ ok: false, error: "global_limit" });
+  it("refuses it when half its short window is used, whatever the week looks like", async () => {
+    expect(await createGame(metered(0, 50).deps, slow())).toEqual({ ok: false, error: "no_games_left", blocked: "short_window" });
   });
 
-  it("gives out only the last slot when two visitors ask at once", async () => {
-    const h = harness(db);
-    for (let i = 0; i < LIMITS.globalPerDay - 1; i++) await playOne(h, { playerId: `p${i}`, ipHash: `i${i}` });
+  it("refuses it when its meter cannot be read", async () => {
+    const h = harness(db, [], { usage: { ...harness(db).deps.usage, meter: async () => ({ value: null, readAt: null, error: "HTTP 401" }) } });
+    expect(await createGame(h.deps, slow())).toEqual({ ok: false, error: "no_games_left", blocked: "usage_unavailable" });
+  });
+
+  it("splits a budget between the day's players", async () => {
+    // Six games of headroom, and two people have already played one each.
+    const h = metered(19);
+    for (const playerId of ["a", "b"]) expect((await playOne(h, slow({ playerId, ipHash: playerId }))).ok).toBe(true);
+    for (let i = 0; i < 3; i++) expect((await playOne(h, slow())).ok).toBe(true);
+    expect(await createGame(h.deps, slow())).toEqual({ ok: false, error: "no_games_left", blocked: "player" });
+    // Someone who has not played yet still gets a game.
+    expect((await createGame(h.deps, slow({ playerId: "late", ipHash: "late" }))).ok).toBe(true);
+  });
+
+  it("lets one network have two players' shares and no more", async () => {
+    const h = metered(19);
+    for (let i = 0; i < 4; i++) expect((await playOne(h, slow({ playerId: `p${i}` }))).ok).toBe(true);
+    expect(await createGame(h.deps, slow({ playerId: "one-more" }))).toEqual({ ok: false, error: "no_games_left", blocked: "network" });
+  });
+
+  it("gives out only the last game when two visitors ask at once", async () => {
+    const h = metered(24);
     // Each request lingers between counting the day's games and adding its own.
     const racing = { ...h.deps, db: pausingAfter(db, /count\(\*\)/) };
     const results = await Promise.all([
-      createGame(racing, input({ playerId: "x", ipHash: "ix" })),
-      createGame(racing, input({ playerId: "y", ipHash: "iy" })),
+      createGame(racing, slow({ playerId: "x", ipHash: "ix" })),
+      createGame(racing, slow({ playerId: "y", ipHash: "iy" })),
     ]);
     expect(results.filter((r) => r.ok)).toHaveLength(1);
-    expect(results.find((r) => !r.ok)).toEqual({ ok: false, error: "global_limit" });
+    expect(results.find((r) => !r.ok)).toEqual({ ok: false, error: "no_games_left", blocked: "pace" });
   });
 
-  it("returns the slot when a game is aborted", async () => {
-    const h = harness(db);
-    const created = await createGame(h.deps, input());
+  it("returns the game to the player's share when it is aborted", async () => {
+    const h = metered(0);
+    const created = await createGame(h.deps, slow());
     await finishGame(db, created.ok ? created.game.id : "", { status: "aborted", result: null, reason: "provider_error" });
-    expect((await capacity(db, "player-1", "ip-1", NOON)).player.used).toBe(0);
+    expect(await gameCounts(db, dayKey(NOON), "player-1", "ip-1", NOON)).toEqual([
+      { provider: "codex", model: "gpt-a", total: 0, player: 0, ip: 0, active: 0, earlier: 0 },
+    ]);
   });
 
   it("counts a game made at 23:59 Pacific toward that day only", async () => {
     const h = harness(db);
     h.clock.now = Date.UTC(2026, 9, 10, 6, 59);
-    for (let i = 0; i < LIMITS.playerPerDay; i++) await playOne(h);
-    expect((await createGame(h.deps, input())).ok).toBe(false);
+    const late = await playOne(h);
+    expect(late.ok && late.game.day).toBe("2026-10-09");
     h.clock.now = Date.UTC(2026, 9, 10, 7, 0);
+    expect(await gameCounts(db, dayKey(h.clock.now), "player-1", "ip-1", h.clock.now)).toEqual([]);
     const next = await createGame(h.deps, input());
     expect(next.ok && next.game.day).toBe("2026-10-10");
   });

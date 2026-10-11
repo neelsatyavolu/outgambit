@@ -1,7 +1,7 @@
-import { findTimeControl } from "../config";
+import { effortsFor, findTimeControl } from "../config";
 import type { Queryable } from "../db/client";
 import { listModelRatings } from "../db/ratings";
-import { EFFORTS, type Effort, type Provider } from "../game/types";
+import type { Effort, Provider } from "../game/types";
 import type { OfferedModel } from "../owner/catalog";
 import { POOLS, type Pool } from "./elo";
 import { modelKey, seedRating } from "./seeds";
@@ -29,7 +29,7 @@ const playsRegular = (model: OfferedModel): boolean => model.timeControls.some((
 export async function modelBoard(q: Queryable, models: readonly OfferedModel[]): Promise<RatedModel[]> {
   const earned = await listModelRatings(q);
   const lines = models.flatMap((model) => {
-    const efforts: Array<Effort | null> = model.supportsEffort ? [...EFFORTS] : [null];
+    const efforts: Array<Effort | null> = model.supportsEffort ? [...effortsFor(model.provider, model.id)] : [null];
     const pools = POOLS.filter((pool) => (pool === "bullet" ? playsBullet(model) : playsRegular(model)));
     return efforts.flatMap((effort) =>
       pools.map((pool): RatedModel => {

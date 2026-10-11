@@ -13,6 +13,19 @@ export const SLOW: OfferedModel = {
   provider: "codex", id: "gpt-a", label: "GPT A", supportsEffort: true, timeControls: ["10+10", "20+20", "45+30"],
 };
 
+export const PAID: OfferedModel = {
+  provider: "jev", id: "jev-latest", label: "Jev", supportsEffort: false, timeControls: ["1+0"],
+};
+
+/** A subscription week that began three and a half days before NOON, with `usedPercent` of it used. */
+export const meterAt = (usedPercent: number, short: number | null = null) => {
+  const week = 7 * 24 * 60 * 60 * 1000;
+  return {
+    weekly: { usedPercent, resetsAt: NOON + week / 2, lengthMs: week },
+    short: short === null ? null : { usedPercent: short, resetsAt: NOON + 60_000, lengthMs: 5 * 60 * 60 * 1000 },
+  };
+};
+
 export type Harness = {
   deps: Deps;
   clock: { now: number };
@@ -45,8 +58,13 @@ export function harness(db: Db, replies: Reply[] = [], overrides: Partial<Deps> 
     now: () => clock.now,
     adapterFor: async () => adapter,
     schedule: (job) => void jobs.push(job),
-    findModel: async (provider, id) => [FAST, SLOW].find((m) => m.provider === provider && m.id === id) ?? null,
+    findModel: async (provider, id) => [FAST, SLOW, PAID].find((m) => m.provider === provider && m.id === id) ?? null,
     entrants: async () => [],
+    // Subscriptions with nothing used yet, and the larger OpenRouter limit, unless a test says otherwise.
+    usage: {
+      meter: async () => ({ value: meterAt(0), readAt: clock.now, error: null }),
+      openRouterCap: async () => 1000,
+    },
     random: () => 0,
     ...overrides,
   };

@@ -86,20 +86,6 @@ export async function listMoves(q: Queryable, gameId: string): Promise<Move[]> {
   }));
 }
 
-export type DayCounts = { global: number; player: number; ip: number };
-
-/** Games people started on `day` that still count toward the limits. Arena games have a budget of their own. */
-export async function countForDay(q: Queryable, day: string, playerId: string, ipHash: string): Promise<DayCounts> {
-  const [row] = await q.query<DayCounts>(
-    `SELECT count(*)::int AS global,
-            (count(*) FILTER (WHERE player_id = $2))::int AS player,
-            (count(*) FILTER (WHERE ip_hash = $3))::int AS ip
-       FROM games WHERE day = $1 AND status <> 'aborted' AND rival_model IS NULL`,
-    [day, playerId, ipHash],
-  );
-  return { global: row.global, player: row.player, ip: row.ip };
-}
-
 export async function activeGameFor(q: Queryable, playerId: string): Promise<Game | null> {
   const rows = await q.query(
     "SELECT * FROM games WHERE player_id = $1 AND status = 'active' ORDER BY created_at DESC LIMIT 1",

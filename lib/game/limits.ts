@@ -1,6 +1,4 @@
-import { DAY_TIME_ZONE, LIMITS } from "../config";
-import type { Queryable } from "../db/client";
-import { countForDay } from "../db/games";
+import { DAY_TIME_ZONE } from "../config";
 
 // en-CA formats dates as YYYY-MM-DD.
 const dayFormat = new Intl.DateTimeFormat("en-CA", {
@@ -26,34 +24,4 @@ export function nextResetAt(now: number): number {
     else tomorrow = middle;
   }
   return tomorrow;
-}
-
-export type Blocked = "player" | "network" | "global" | null;
-
-export type Capacity = {
-  player: { used: number; limit: number };
-  global: { used: number; limit: number };
-  resetAt: number;
-  /** Which limit stops this visitor from starting a game, if any. */
-  blocked: Blocked;
-};
-
-export async function capacity(q: Queryable, playerId: string, ipHash: string, now: number): Promise<Capacity> {
-  const counts = await countForDay(q, dayKey(now), playerId, ipHash);
-  const blocked: Blocked =
-    counts.global >= LIMITS.globalPerDay
-      ? "global"
-      : counts.player >= LIMITS.playerPerDay
-        ? "player"
-        : counts.ip >= LIMITS.ipPerDay
-          ? "network"
-          : null;
-  // A visitor stopped by the network backstop has no games left either.
-  const playerUsed = blocked === "network" ? LIMITS.playerPerDay : Math.min(counts.player, LIMITS.playerPerDay);
-  return {
-    player: { used: playerUsed, limit: LIMITS.playerPerDay },
-    global: { used: Math.min(counts.global, LIMITS.globalPerDay), limit: LIMITS.globalPerDay },
-    resetAt: nextResetAt(now),
-    blocked,
-  };
 }

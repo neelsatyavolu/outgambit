@@ -71,10 +71,10 @@ describe("listForOwner", () => {
     ]);
   });
 
-  it("gives decision models the bullet and blitz time controls", async () => {
+  it("gives decision models one-minute games only", async () => {
     await saveSecret(db, "openai", key, NOW);
     await upsertModel(db, { provider: "openai", modelId: "gpt-6-luna", label: "GPT-6 Luna (Decisions)", supportsEffort: false, enabled: true });
-    expect((await listOffered(db, loadCatalog)).find((m) => m.provider === "openai")?.timeControls).toContain("1+0");
+    expect((await listOffered(db, loadCatalog)).find((m) => m.provider === "openai")?.timeControls).toEqual(["1+0"]);
   });
 
   it("lists models the owner added by hand", async () => {
@@ -112,8 +112,8 @@ describe("listOffered", () => {
     await saveSecret(db, "jev", key, NOW);
     await upsertModel(db, { provider: "codex", modelId: "gpt-a", label: "GPT A", supportsEffort: true, enabled: true });
     const offered = await listOffered(db, loadCatalog);
-    expect(offered.find((m) => m.id === "gpt-a")?.timeControls).toEqual(["10+10", "20+20", "45+30"]);
-    expect(offered.find((m) => m.id === "jev-latest")?.timeControls).toContain("1+0");
+    expect(offered.find((m) => m.id === "gpt-a")?.timeControls).toEqual(["20+20", "45+30"]);
+    expect(offered.find((m) => m.id === "jev-latest")?.timeControls).toEqual(["1+0"]);
   });
 
   it("never offers a stored OpenRouter or Gemini model that is not free", async () => {

@@ -43,6 +43,11 @@ describe("openAiDecisionsAdapter", () => {
     expect(await openAiDecisionsAdapter("k", { fetch: fetcher })(requestFor())).toEqual({ kind: "move", san: "Nf3" });
   });
 
+  it("reports the input tokens the call was billed for", async () => {
+    const { fetcher } = fakeFetch(() => json({ answers: [answer("a", "e2e4"), answer("b", "e2e4")], usage: { input_tokens: 401, output_tokens: 0 } }));
+    expect(await openAiDecisionsAdapter("k", { fetch: fetcher })(requestFor())).toEqual({ kind: "move", san: "e4", inputTokens: 401 });
+  });
+
   it("uses the same one-move tactics as Jev: mate in one needs no call", async () => {
     const { fetcher, calls } = fakeFetch(() => respond());
     const result = await openAiDecisionsAdapter("k", { fetch: fetcher })(requestFor(["f3", "e5", "g4"]));

@@ -57,6 +57,15 @@ describe("jevAdapter", () => {
     expect(await jevAdapter("k", { fetch: fetcher })(requestFor())).toEqual({ kind: "move", san: "Nf3" });
   });
 
+  it("reports the input tokens the call was billed for, when Jev gives a sensible count", async () => {
+    const billed = (usage: unknown) =>
+      jevAdapter("k", { fetch: fakeFetch(() => json({ answers: { a: answer("e2e4"), b: answer("e2e4") }, usage })).fetcher })(requestFor());
+    expect(await billed({ input_tokens: 391.4, output_tokens: 67 })).toEqual({ kind: "move", san: "e4", inputTokens: 391 });
+    for (const usage of [undefined, {}, { input_tokens: "391" }, { input_tokens: -5 }, { input_tokens: 3e9 }, { input_tokens: Number.NaN }]) {
+      expect((await billed(usage)).inputTokens).toBeUndefined();
+    }
+  });
+
   it("falls back to the stated choice when no probabilities come back", async () => {
     const { fetcher } = fakeFetch(() => respond(answer("e2e4")));
     expect(await jevAdapter("k", { fetch: fetcher })(requestFor())).toEqual({ kind: "move", san: "e4" });

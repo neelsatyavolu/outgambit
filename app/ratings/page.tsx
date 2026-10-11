@@ -68,7 +68,7 @@ export default async function RatingsPage() {
         {POOLS.map((pool) => (
           <section className="section" key={pool}>
             <span className="label">
-              {POOL_LABELS[pool]} · {pool === "bullet" ? "1+0 to 5+0" : "10+10 and slower"}
+              {POOL_LABELS[pool]} · {pool === "bullet" ? "1+0 to 5+0" : "20+20 and slower"}
             </span>
             <Table lines={board.filter((line) => line.pool === pool)} />
           </section>

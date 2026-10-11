@@ -26,9 +26,9 @@ test("a visitor plays a game to the end and the owner watches it", async ({ page
   await expect(result).toContainText("Checkmate.");
   await expect(page.getByTestId("moves")).toContainText("Qh4#");
 
-  // The finished game used one of the player's five daily games.
+  // The scripted opponent costs nothing, so there is no budget to count the game against.
   await page.getByRole("link", { name: "New game" }).click();
-  await expect(page.getByText("4 / 5")).toBeVisible();
+  await expect(page.getByText("No limit").first()).toBeVisible();
 
   // The owner signs in from a separate browser and opens the same game.
   const ownerContext = await browser.newContext();

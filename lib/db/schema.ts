@@ -94,6 +94,15 @@ const STATEMENTS = [
     key text PRIMARY KEY,
     value text NOT NULL
   )`,
+  // What each model was asked on each Pacific day, for the budgets in lib/budget.
+  `CREATE TABLE IF NOT EXISTS usage (
+    day text NOT NULL,
+    provider text NOT NULL,
+    model text NOT NULL,
+    calls integer NOT NULL DEFAULT 0,
+    input_tokens integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, provider, model)
+  )`,
 ];
 
 /** Creates any missing tables and columns. Safe to run on every start. */

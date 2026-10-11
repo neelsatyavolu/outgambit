@@ -28,8 +28,20 @@ export type DecisionQuery = {
 
 export type DecisionAnswer = { choice: string | null; probabilities: Record<string, number> };
 
-/** Sends one query. Resolves to one answer per ordering, or a short description of the failure. */
-export type Decider = (query: DecisionQuery) => Promise<{ answers: DecisionAnswer[] } | { error: string }>;
+/**
+ * Sends one query. Resolves to one answer per ordering and the input tokens
+ * it was billed for, or a short description of the failure.
+ */
+export type Decider = (query: DecisionQuery) => Promise<{ answers: DecisionAnswer[]; inputTokens?: number } | { error: string }>;
+
+/** More input tokens than one question about one position could take: a count above this is a mistake, not a bill. */
+const MOST_TOKENS = 1_000_000;
+
+/** The input tokens a decision response says it used, as a whole number. Undefined if it does not say, or says nonsense. */
+export function billedTokens(usage: unknown): number | undefined {
+  const tokens = (usage as { input_tokens?: unknown } | null | undefined)?.input_tokens;
+  return typeof tokens === "number" && tokens >= 0 && tokens <= MOST_TOKENS ? Math.round(tokens) : undefined;
+}
 
 export type DecisionOptions = {
   rng?: () => number;
@@ -134,10 +146,11 @@ export function decisionAdapter(decide: Decider, options: DecisionOptions = {}):
     try {
       const outcome = await decide(buildQuery(request, moves, rng));
       if ("error" in outcome) return providerError(outcome.error);
+      const { inputTokens } = outcome;
       const chosen = strongest(outcome.answers);
-      if (chosen === null) return providerError("bad response");
+      if (chosen === null) return { ...providerError("bad response"), inputTokens };
       const move = moves.find((m) => m.uci === chosen);
-      return move ? { kind: "move", san: move.san } : { kind: "invalid", raw: chosen };
+      return move ? { kind: "move", san: move.san, inputTokens } : { kind: "invalid", raw: chosen, inputTokens };
     } catch (error) {
       return providerError(errorName(error));
     }

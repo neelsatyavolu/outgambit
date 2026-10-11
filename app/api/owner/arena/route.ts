@@ -20,7 +20,7 @@ const changeSchema = z.union([
 const REFUSALS: Record<StartRefusal, string> = {
   running: "An arena game is already being played.",
   budget: "Today's arena games have all been played.",
-  no_pairing: "The arena needs at least two models that can play the same time control.",
+  no_pairing: "The arena needs two models that play the same time control and have a game to spare in their budgets.",
 };
 
 export async function GET(request: Request) {

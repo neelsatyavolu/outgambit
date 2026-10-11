@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { arenaGames, loadDemand } from "../budget/allowance";
+import { supplies } from "../budget/supply";
 import { replay } from "../chess/rules";
-import { ARENA, findTimeControl } from "../config";
+import { ARENA, effortFor, findTimeControl } from "../config";
 import { abortedArenaGames, activeArenaGame, arenaMeetings, countArenaForDay } from "../db/arena";
 import type { Queryable } from "../db/client";
 import { finishGame, getGame, insertGame } from "../db/games";
@@ -63,7 +65,7 @@ async function field(q: Queryable, models: readonly OfferedModel[], day: string)
   return models
     .filter((model) => !out.some((o) => o.provider === model.provider && o.model === model.id))
     .flatMap((model) => {
-      const effort = model.supportsEffort ? ARENA.effort : null;
+      const effort = model.supportsEffort ? effortFor(model.provider, model.id, ARENA.effort) : null;
       const key = modelKey(model.provider, model.id, effort);
       const seat = { provider: model.provider, model: model.id, modelLabel: model.label, effort };
       return POOLS.filter((pool) => model.timeControls.includes(ARENA.timeControls[pool])).map((pool): Entry => {
@@ -119,20 +121,30 @@ export type StartResult = { ok: true; game: Game } | { ok: false; reason: StartR
 
 /**
  * Starts the next arena game, unless one is still going, the day's budget is
- * spent, or fewer than two models can be paired. `ignoreBudget` is for a game
- * the owner asks for by hand.
+ * spent, or fewer than two models can be paired. A model is only paired while
+ * its own budget has a game to spare that the day's players are not expected
+ * to use. `ignoreBudget` is for a game the owner asks for by hand; it lifts
+ * the day's number of games, not the models' budgets.
  */
 export async function startArenaGame(deps: Deps, options: { ignoreBudget?: boolean } = {}): Promise<StartResult> {
   const now = deps.now();
   const day = dayKey(now);
   const models = await deps.entrants();
+  // Read before taking the lock: this may have to ask a provider.
+  const budgets = await supplies(deps.db, deps.usage, models.map((m) => ({ provider: m.provider, model: m.id })), now);
   return deps.db.transaction<StartResult>(async (tx) => {
     await tx.query(`SELECT pg_advisory_xact_lock(${ARENA_LOCK})`);
     if (await activeArenaGame(tx)) return { ok: false, reason: "running" };
     if (!options.ignoreBudget && (await countArenaForDay(tx, day)) >= (await arenaGamesPerDay(tx))) {
       return { ok: false, reason: "budget" };
     }
-    const pairing = nextPairing(await field(tx, models, day), await meetings(tx), deps.random);
+    const demand = await loadDemand(tx, { playerId: ARENA_PLAYER, ipHash: ARENA_PLAYER }, now);
+    const affordable = models.filter((_, i) => {
+      // Two entrants on one budget may meet, and then it pays for both sides.
+      const shared = budgets.some((other, j) => j !== i && other !== null && other.pool.id === budgets[i]?.pool.id);
+      return arenaGames(budgets[i], demand) >= (shared ? 2 : 1);
+    });
+    const pairing = nextPairing(await field(tx, affordable, day), await meetings(tx), deps.random);
     if (!pairing) return { ok: false, reason: "no_pairing" };
     const game = newGame(pairing, now);
     await insertGame(tx, game);

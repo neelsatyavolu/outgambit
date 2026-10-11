@@ -7,12 +7,14 @@ import { makeGame, NOON } from "@/test/factory";
 import { createPgliteDb, createPostgresDb, explicitSslMode, type Db } from "./client";
 import { deleteConnection, getConnection, listConnections, putConnection } from "./connections";
 import {
-  activeGameFor, claimGames, claimLease, commitMove, countForDay, expireOverdue, finishGame, getGame, insertGame,
+  activeGameFor, claimGames, claimLease, commitMove, expireOverdue, finishGame, getGame, insertGame,
   listGames, listGamesFor, listMoves, recordAttempt, renewLease, tallyFor,
 } from "./games";
 import { deleteModel, listModelRows, upsertModel } from "./models";
 import { hitRateLimit } from "./rate-limit";
 import { migrate } from "./schema";
+import { getSettings, setSetting } from "./settings";
+import { averagePlies, gameCounts, playersSince, recordUsage, usageSince } from "./usage";
 import { findUserByEmail, getUser, insertUser } from "./users";
 
 let db: Db;
@@ -198,13 +200,65 @@ describe("games", () => {
     expect(await getGame(db, done.id)).toMatchObject({ result: "draw", whiteMs: 1 });
   });
 
-  it("counts a day's games by player, network and overall, ignoring aborted ones", async () => {
+  it("counts a day's games against each model by player, network and overall, ignoring aborted ones", async () => {
     await insertGame(db, makeGame({ playerId: "a", ipHash: "x" }));
     await insertGame(db, makeGame({ playerId: "a", ipHash: "y", status: "finished" }));
     await insertGame(db, makeGame({ playerId: "b", ipHash: "x" }));
     await insertGame(db, makeGame({ playerId: "a", ipHash: "x", status: "aborted" }));
+    await insertGame(db, makeGame({ playerId: "a", ipHash: "x", day: "2026-10-08", status: "finished" }));
+    await insertGame(db, makeGame({ playerId: "a", ipHash: "x", provider: "jev", model: "jev-latest", status: "finished" }));
+    await insertGame(db, makeGame({ playerId: "c", ipHash: "z", day: "2026-09-20", createdAt: NOON - 19 * 86_400_000, status: "finished" }));
+    const counts = await gameCounts(db, "2026-10-09", "a", "x", NOON - 7 * 86_400_000);
+    expect(counts.sort((one, two) => one.provider.localeCompare(two.provider))).toEqual([
+      { provider: "fake", model: "fake-1", total: 3, player: 2, ip: 2, active: 2, earlier: 1 },
+      { provider: "jev", model: "jev-latest", total: 1, player: 1, ip: 1, active: 0, earlier: 0 },
+    ]);
+  });
+
+  it("counts a game still being played wherever it started, but an arena game toward no player", async () => {
+    const rival = { provider: "fake", model: "fake-2", modelLabel: "Rehearsed", effort: null } as const;
+    await insertGame(db, makeGame({ playerId: "arena", ipHash: "arena", rival }));
     await insertGame(db, makeGame({ playerId: "a", ipHash: "x", day: "2026-10-08" }));
-    expect(await countForDay(db, "2026-10-09", "a", "x")).toEqual({ global: 3, player: 2, ip: 2 });
+    expect(await gameCounts(db, "2026-10-09", "a", "x", NOON + 1)).toEqual([
+      { provider: "fake", model: "fake-1", total: 0, player: 0, ip: 0, active: 2, earlier: 0 },
+    ]);
+  });
+
+  it("counts the day's players, and the player-days of the week before", async () => {
+    const DAY = 86_400_000;
+    for (const playerId of ["a", "a", "b"]) await insertGame(db, makeGame({ playerId }));
+    await insertGame(db, makeGame({ playerId: "c", status: "aborted" }));
+    for (const playerId of ["a", "c"]) await insertGame(db, makeGame({ playerId, day: "2026-10-08", createdAt: NOON - DAY }));
+    await insertGame(db, makeGame({ playerId: "a", day: "2026-10-06", createdAt: NOON - 3 * DAY }));
+    await insertGame(db, makeGame({ playerId: "a", day: "2026-09-30", createdAt: NOON - 9 * DAY }));
+    expect(await playersSince(db, "2026-10-09", NOON - 7 * DAY)).toEqual({ today: 2, earlier: 3 });
+    expect(await playersSince(db, "2026-10-12", NOON + 1)).toEqual({ today: 0, earlier: 0 });
+  });
+
+  it("averages the length of each model's finished games", async () => {
+    for (const ply of [40, 60]) await insertGame(db, makeGame({ status: "finished", ply }));
+    await insertGame(db, makeGame({ status: "aborted", ply: 2 }));
+    await insertGame(db, makeGame({ status: "finished", ply: 300, createdAt: NOON - 30 * 86_400_000 }));
+    expect(await averagePlies(db, NOON - 7 * 86_400_000)).toEqual([{ provider: "fake", model: "fake-1", plies: 50 }]);
+  });
+
+  it("adds up a model's calls and tokens for each day", async () => {
+    const jev = { provider: "jev", model: "jev-latest" } as const;
+    await recordUsage(db, "2026-10-09", jev, 400);
+    await recordUsage(db, "2026-10-09", jev, 0);
+    await recordUsage(db, "2026-10-08", jev, 50);
+    await recordUsage(db, "2026-10-01", jev, 50);
+    expect((await usageSince(db, "2026-10-08")).sort((one, two) => one.day.localeCompare(two.day))).toEqual([
+      { day: "2026-10-08", ...jev, calls: 1, tokens: 50 },
+      { day: "2026-10-09", ...jev, calls: 2, tokens: 400 },
+    ]);
+  });
+
+  it("finds stored settings by the start of their key", async () => {
+    await setSetting(db, "pause:openrouter", "1");
+    await setSetting(db, "pause:gemini/x", "2");
+    await setSetting(db, "other", "3");
+    expect(await getSettings(db, "pause:")).toEqual(new Map([["openrouter", "1"], ["gemini/x", "2"]]));
   });
 
   it("restarts the turn's clock with a lease when asked to", async () => {

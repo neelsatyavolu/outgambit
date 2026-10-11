@@ -6,6 +6,7 @@ import {
   ACCOUNT_COOKIE, ACCOUNT_TTL_MS, accountOf, accountPlayerId, createAccountSession,
 } from "../account/session";
 import { getAdapter } from "../ai/registry";
+import { usageSource } from "../budget/sources";
 import { getDb } from "../db/client";
 import type { Deps } from "../game/deps";
 import { clientIp, fail, hashIp, isPlayerId, sameOrigin } from "../http";
@@ -34,6 +35,7 @@ export async function buildDeps(): Promise<Deps> {
       }),
     findModel: (provider, id) => findOffered(db, provider, id),
     entrants: () => listEntrants(db),
+    usage: usageSource(db),
     random: Math.random,
   };
 }

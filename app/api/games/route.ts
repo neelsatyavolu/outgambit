@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BLOCKED_TEXT } from "@/lib/budget/text";
 import { hitRateLimit } from "@/lib/db/rate-limit";
 import { createGame, type CreateError } from "@/lib/game/create";
 import { EFFORTS, PROVIDERS } from "@/lib/game/types";
@@ -22,9 +23,7 @@ const REFUSALS: Record<CreateError, { message: string; status: number }> = {
   unknown_model: { message: "That opponent is not available.", status: 400 },
   bad_time_control: { message: "That time control is not available for this opponent.", status: 400 },
   active_game: { message: "You already have a game in progress.", status: 409 },
-  player_limit: { message: "You have played all of your games for today.", status: 429 },
-  network_limit: { message: "This network has used its games for today.", status: 429 },
-  global_limit: { message: "All of today's games have been played.", status: 429 },
+  no_games_left: { message: "This opponent has no games left today.", status: 429 },
 };
 
 const CREATES_PER_MINUTE = 10;
@@ -55,6 +54,9 @@ export async function POST(request: Request) {
     timeControl: body.timeControl,
     color: body.color,
   });
-  if (!created.ok) return fail(REFUSALS[created.error].message, REFUSALS[created.error].status);
+  if (!created.ok) {
+    const refusal = REFUSALS[created.error];
+    return fail(created.blocked ? BLOCKED_TEXT[created.blocked] : refusal.message, refusal.status);
+  }
   return ok({ id: created.game.id }, 201);
 }

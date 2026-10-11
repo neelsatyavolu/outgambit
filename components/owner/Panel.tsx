@@ -3,10 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/client/api";
+import { BUDGET } from "@/lib/config";
 import { Arena } from "./Arena";
 import { Connections } from "./Connections";
 import { Games } from "./Games";
 import { Models } from "./Models";
+import { Usage } from "./Usage";
 
 export function Panel() {
   const router = useRouter();
@@ -24,6 +26,7 @@ export function Panel() {
         <a href="#connections">Connections</a>
         <a href="#models">Models</a>
         <a href="#arena">Arena</a>
+        <a href="#usage">Usage</a>
       </nav>
       <section className="section" id="games">
         <span className="label">Games</span>
@@ -47,6 +50,15 @@ export function Panel() {
           arena starts one game an hour at most, up to the number you set, and only between the models you tick.
         </p>
         <Arena version={version} />
+      </section>
+      <section className="section" id="usage">
+        <span className="label">Usage</span>
+        <p className="hint">
+          What each model on offer has used of its budget, and the games that leaves for today. A subscription may be{" "}
+          {BUDGET.weeklyShare * 100}% used by the end of its week; a paid model may cost {BUDGET.centsPerDay}¢ a day; a
+          free model stops at its free limit.
+        </p>
+        <Usage version={version} />
       </section>
       <div className="actions">
         <button className="btn ghost" type="button" onClick={() => void signOut()}>

@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/client/api";
-import type { TimeControl } from "@/lib/config";
+import { effortFor, effortsFor, type TimeControl } from "@/lib/config";
 import { PROVIDER_LABELS } from "@/lib/format";
-import type { Capacity } from "@/lib/game/limits";
-import { EFFORTS, type Color, type Effort } from "@/lib/game/types";
+import type { Allowance, Blocked } from "@/lib/budget/allowance";
+import { BLOCKED_LABEL, BLOCKED_TEXT } from "@/lib/budget/text";
+import type { Color, Effort } from "@/lib/game/types";
 import type { OfferedModel } from "@/lib/owner/catalog";
 import type { RatedModel } from "@/lib/rating/board";
 import { POOL_LABELS, poolOf, type Pool } from "@/lib/rating/elo";
@@ -15,8 +16,10 @@ import { opponentGroups, ratingFor } from "@/lib/rating/opponents";
 import { Segmented } from "./Segmented";
 
 type Lobby = {
-  capacity: Capacity;
   models: OfferedModel[];
+  /** What this visitor may still play against each model today. Null where there is no limit. */
+  budgets: Record<string, Allowance | null>;
+  resetAt: number;
   ratings: RatedModel[];
   timeControls: TimeControl[];
   activeGameId: string | null;
@@ -30,16 +33,13 @@ const SIDES = [
   { value: "random", label: "Random" },
 ] as const;
 
-const BLOCKED_TEXT = {
-  player: "You have played all of your games for today.",
-  network: "This network has used its games for today.",
-  global: "All of today's games have been played.",
-} as const;
+/** The reasons that last until the day's budgets start again, and no longer. */
+const UNTIL_RESET: readonly Blocked[] = ["player", "network", "free_limit", "daily_budget"];
 
-/** What sets each group of opponents apart: the fast ones play everything, the rest only slow games. */
+/** What sets each group of opponents apart: the fast ones play one-minute games, the rest only slow games. */
 const GROUP_NOTES: Record<Pool, string> = {
-  bullet: "plays every time control",
-  regular: "10+10 and slower",
+  bullet: "1+0 only",
+  regular: "20+20 and slower",
 };
 
 const DEFAULT_EFFORT: Effort = "medium";
@@ -61,28 +61,33 @@ function timeGroups(offered: string[], all: TimeControl[]): Array<{ name: string
   return groups.filter((g) => g.ids.length > 0);
 }
 
-function CapacityCells({ capacity, now }: { capacity: Capacity; now: number }) {
-  const left = (c: { used: number; limit: number }) => c.limit - c.used;
+/** The games this visitor can still start against an opponent: their share, as far as its budget stretches. */
+const yoursLeft = (budget: Allowance): number =>
+  budget.blocked ? 0 : Math.max(0, Math.min(budget.limit - budget.used, budget.left));
+
+/** Today's games against the chosen opponent. Each opponent has its own budget, so these follow the choice. */
+function CapacityCells({ budget, resetAt, now }: { budget: Allowance | null; resetAt: number; now: number }) {
   return (
     <div className="cells">
       <div>
         <span className="label">Your games left today</span>
-        <span className="figure">
-          {left(capacity.player)} / {capacity.player.limit}
-        </span>
+        <span className="figure">{budget ? `${yoursLeft(budget)} / ${budget.limit}` : "No limit"}</span>
       </div>
       <div>
         <span className="label">Games left for everyone</span>
-        <span className="figure">
-          {left(capacity.global)} / {capacity.global.limit}
-        </span>
+        <span className="figure">{budget ? budget.left : "No limit"}</span>
       </div>
       <div>
         <span className="label">Resets in</span>
-        <span className="figure">{untilReset(capacity.resetAt, now)}</span>
+        <span className="figure">{untilReset(resetAt, now)}</span>
       </div>
     </div>
   );
+}
+
+/** Beside an opponent's name: why it has no game to give this visitor right now, if it has none. */
+function BlockedTag({ budget }: { budget: Allowance | null | undefined }) {
+  return budget?.blocked ? <span className="meta">{BLOCKED_LABEL[budget.blocked]}</span> : null;
 }
 
 /** A model's rating beside its name. An unplayed model shows its starting estimate. */
@@ -102,7 +107,7 @@ export function SetupForm() {
   const [error, setError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   const [effort, setEffort] = useState<Effort>(DEFAULT_EFFORT);
-  const [timeControl, setTimeControl] = useState("10+10");
+  const [timeControl, setTimeControl] = useState("20+20");
   const [side, setSide] = useState<Side>("white");
   const [starting, setStarting] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -113,8 +118,9 @@ export function SetupForm() {
       if (!alive) return;
       if (!response.success) return setError(response.error);
       setLobby(response.data);
-      // Start on the opponent at the top of the list as it is drawn.
-      const first = opponentGroups(response.data.models, response.data.ratings, DEFAULT_EFFORT)[0]?.opponents[0];
+      // Start on the first opponent in the list, as it is drawn, that has a game to give.
+      const listed = opponentGroups(response.data.models, response.data.ratings, DEFAULT_EFFORT).flatMap((g) => g.opponents);
+      const first = listed.find((o) => !response.data.budgets[keyOf(o.model)]?.blocked) ?? listed[0];
       setChosen((current) => current ?? (first ? keyOf(first.model) : null));
     });
     const timer = setInterval(() => setNow(Date.now()), 30_000);
@@ -126,7 +132,7 @@ export function SetupForm() {
 
   const model = useMemo(() => lobby?.models.find((m) => keyOf(m) === chosen) ?? null, [lobby, chosen]);
   // Keep the chosen time control valid when the opponent changes.
-  const control = model?.timeControls.includes(timeControl) ? timeControl : (model?.timeControls.at(-3) ?? "10+10");
+  const control = model?.timeControls.includes(timeControl) ? timeControl : (model?.timeControls.at(-3) ?? model?.timeControls[0] ?? "10+10");
 
   async function start() {
     if (!model) return;
@@ -135,7 +141,7 @@ export function SetupForm() {
     const response = await api<{ id: string }>("/api/games", "POST", {
       provider: model.provider,
       model: model.id,
-      effort: model.supportsEffort ? effort : null,
+      effort: model.supportsEffort ? effortFor(model.provider, model.id, effort) : null,
       timeControl: control,
       color: side,
     });
@@ -146,14 +152,15 @@ export function SetupForm() {
 
   if (!lobby) return <p className={error ? "error" : "muted"}>{error ?? "Loading…"}</p>;
 
-  const blocked = lobby.capacity.blocked;
+  const budget = model ? (lobby.budgets[keyOf(model)] ?? null) : null;
+  const blocked = budget?.blocked ?? null;
   const pool = poolOf(control);
   const mine = lobby.account?.ratings[pool] ?? null;
   const theirs = model ? ratingFor(lobby.ratings, model, effort, pool) : undefined;
   const canPlay = lobby.account !== null && !lobby.account.needsSkill;
   return (
     <>
-      <CapacityCells capacity={lobby.capacity} now={now} />
+      <CapacityCells budget={budget} resetAt={lobby.resetAt} now={now} />
 
       {!lobby.account && (
         <div className="notice">
@@ -191,11 +198,12 @@ export function SetupForm() {
         </div>
       )}
 
-      {!lobby.activeGameId && blocked && (
+      {!lobby.activeGameId && model && blocked && (
         <div className="notice">
-          <h2>Come back tomorrow</h2>
+          <h2>No games against {model.label} right now</h2>
           <p>
-            {BLOCKED_TEXT[blocked]} The count resets in {untilReset(lobby.capacity.resetAt, now)}, at midnight Pacific.
+            {BLOCKED_TEXT[blocked]}
+            {UNTIL_RESET.includes(blocked) && ` The day's games start again in ${untilReset(lobby.resetAt, now)}, at midnight Pacific.`}
           </p>
         </div>
       )}
@@ -233,6 +241,7 @@ export function SetupForm() {
                       onClick={() => setChosen(keyOf(m))}
                     >
                       <span className="grow">{m.label}</span>
+                      <BlockedTag budget={lobby.budgets[keyOf(m)]} />
                       <span className="meta">{PROVIDER_LABELS[m.provider]}</span>
                       <RatingTag line={line} />
                     </button>
@@ -249,9 +258,9 @@ export function SetupForm() {
                 <span className="label">Effort</span>
                 <Segmented
                   label="Effort"
-                  value={effort}
+                  value={effortFor(model.provider, model.id, effort)}
                   onChange={setEffort}
-                  options={EFFORTS.map((e) => ({ value: e, label: e }))}
+                  options={effortsFor(model.provider, model.id).map((e) => ({ value: e, label: e }))}
                 />
               </section>
             )}

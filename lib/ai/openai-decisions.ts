@@ -1,6 +1,6 @@
 import { DECISION_TIMEOUT_MS } from "../config";
 import {
-  decisionAdapter, instructionsText, stateText,
+  billedTokens, decisionAdapter, instructionsText, stateText,
   type Decider, type DecisionAnswer, type DecisionOptions, type DecisionQuery,
 } from "./decision";
 import type { Adapter } from "./types";
@@ -45,9 +45,9 @@ function openAiDecider(apiKey: string, fetcher: typeof fetch): Decider {
       signal: AbortSignal.any([query.signal, AbortSignal.timeout(DECISION_TIMEOUT_MS)]),
     });
     if (!response.ok) return { error: `HTTP ${response.status}` };
-    const body = (await response.json()) as { answers?: Answer[] };
+    const body = (await response.json()) as { answers?: Answer[]; usage?: unknown };
     const chosen = (body.answers ?? []).filter((a) => a.type === "choice");
-    return chosen.length > 0 ? { answers: chosen.map(toAnswer) } : { error: "refused" };
+    return chosen.length > 0 ? { answers: chosen.map(toAnswer), inputTokens: billedTokens(body.usage) } : { error: "refused" };
   };
 }
 

@@ -1,6 +1,6 @@
 import { JEV_TIMEOUT_MS } from "../config";
 import {
-  decisionAdapter, instructionsText, probabilityMap, stateText,
+  billedTokens, decisionAdapter, instructionsText, probabilityMap, stateText,
   type Decider, type DecisionAnswer, type DecisionOptions, type DecisionQuery,
 } from "./decision";
 import type { Adapter } from "./types";
@@ -49,9 +49,9 @@ export function typeSafeDecider(config: TypeSafeConfig): Decider {
       signal: AbortSignal.any([query.signal, AbortSignal.timeout(config.timeoutMs)]),
     });
     if (!response.ok) return { error: `HTTP ${response.status}` };
-    const body = (await response.json()) as { answers?: { a?: ChoiceAnswer; b?: ChoiceAnswer } };
+    const body = (await response.json()) as { answers?: { a?: ChoiceAnswer; b?: ChoiceAnswer }; usage?: unknown };
     if (!body.answers?.a && !body.answers?.b) return { error: "bad response" };
-    return { answers: [toAnswer(body.answers.a), toAnswer(body.answers.b)] };
+    return { answers: [toAnswer(body.answers.a), toAnswer(body.answers.b)], inputTokens: billedTokens(body.usage) };
   };
 }
 

@@ -1,7 +1,9 @@
 export const PROVIDERS = ["codex", "grok", "gemini", "openrouter", "jev", "openai", "gateway", "fake"] as const;
 export type Provider = (typeof PROVIDERS)[number];
-export const EFFORTS = ["low", "medium", "high"] as const;
-export type Effort = (typeof EFFORTS)[number];
+/** How hard a model thinks. High is only found on older games: it was too slow for a timed game, so it is no longer offered. */
+export type Effort = "low" | "medium" | "high";
+/** The efforts a new game can be played at. */
+export const EFFORTS = ["low", "medium"] as const satisfies readonly Effort[];
 export type Color = "white" | "black";
 export type Status = "active" | "finished" | "aborted";
 export type Result = "white" | "black" | "draw";
