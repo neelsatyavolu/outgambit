@@ -6,7 +6,7 @@ test("a move queued on the opponent's turn is played as soon as the turn comes r
   await page.goto("/");
   await page.getByRole("button", { name: "Start game" }).click();
   await page.waitForURL(/\/game\/[0-9a-f-]{36}$/);
-  await expect(page.getByText("Your move")).toBeVisible();
+  await expect(page.getByText("Your move", { exact: true })).toBeVisible();
 
   // Hold the player's first move in flight, so the board stays on the opponent's turn.
   let release = () => {};

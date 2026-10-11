@@ -1,4 +1,4 @@
-import type { GameView, Provider, Reason } from "./game/types";
+import type { Color, GameView, Provider, Reason } from "./game/types";
 
 export const PROVIDER_LABELS: Record<Provider, string> = {
   codex: "ChatGPT",
@@ -109,4 +109,15 @@ function lost(placement: string, white: boolean): string[] {
 export function capturedPieces(fen: string): { white: string[]; black: string[] } {
   const placement = fen.split(" ")[0];
   return { white: lost(placement, true), black: lost(placement, false) };
+}
+
+const WORTH: Readonly<Record<string, number>> = { q: 9, r: 5, b: 3, n: 3, p: 1 };
+
+/** How far ahead `color` is on the pieces left on the board, in pawns. Negative when behind. */
+export function materialLead(fen: string, color: Color): number {
+  const white = [...fen.split(" ")[0]].reduce((sum, ch) => {
+    const worth = WORTH[ch.toLowerCase()] ?? 0;
+    return ch === ch.toLowerCase() ? sum - worth : sum + worth;
+  }, 0);
+  return color === "white" ? white : -white;
 }
