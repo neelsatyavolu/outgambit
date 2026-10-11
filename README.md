@@ -146,6 +146,10 @@ Changing `OWNER_PASSWORD` signs the owner out everywhere.
 
 Changing `SECRETS_KEY` makes stored connections unreadable; reconnect them after.
 
+Replacing or removing an API key in the owner panel can take up to a minute to
+reach every game: each server keeps the keys it has read for that long, so a
+move does not wait on reading one.
+
 ## License
 
 MIT. See `LICENSE`.

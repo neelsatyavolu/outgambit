@@ -1,6 +1,6 @@
 import type { GameTally } from "../account/stats";
 import type { Game, Move, Reason, Result, Status } from "../game/types";
-import type { Db, Queryable, Row } from "./client";
+import type { Queryable, Row } from "./client";
 import { fromTs, fromTsOrNull, toTs, toTsOrNull } from "./time";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -64,6 +64,7 @@ export async function getGame(q: Queryable, id: string): Promise<Game | null> {
 }
 
 export async function listMoves(q: Queryable, gameId: string): Promise<Move[]> {
+  if (!UUID.test(gameId)) return [];
   const rows = await q.query("SELECT ply, san, uci, fen_after, spent_ms FROM moves WHERE game_id = $1 ORDER BY ply", [
     gameId,
   ]);
@@ -142,25 +143,27 @@ export type MoveCommit = {
   finish?: Ending;
 };
 
-/** Saves a move and advances the game in one transaction. False if the ply was stale. */
-export function commitMove(db: Db, c: MoveCommit): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    const updated = await tx.query(
-      `UPDATE games SET fen = $3, ply = ply + 1, white_ms = $4, black_ms = $5, turn_started_at = $6,
+/**
+ * Saves a move and advances the game. False if the ply was stale. Both
+ * writes are one statement, so they happen together or not at all, in one
+ * trip to the database where a transaction would take four.
+ */
+export async function commitMove(q: Queryable, c: MoveCommit): Promise<boolean> {
+  const saved = await q.query(
+    `WITH advanced AS (
+       UPDATE games SET fen = $3, ply = ply + 1, white_ms = $4, black_ms = $5, turn_started_at = $6,
               ai_lease_until = NULL, ai_invalid = 0, ai_failures = 0, status = $7, result = $8, reason = $9
-        WHERE id = $1 AND ply = $2 AND status = 'active' RETURNING id`,
-      [
-        c.gameId, c.expectedPly, c.move.fenAfter, c.whiteMs, c.blackMs, toTs(c.now),
-        c.finish?.status ?? "active", c.finish?.result ?? null, c.finish?.reason ?? null,
-      ],
-    );
-    if (updated.length === 0) return false;
-    await tx.query(
-      "INSERT INTO moves (game_id, ply, san, uci, fen_after, spent_ms, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
-      [c.gameId, c.expectedPly, c.move.san, c.move.uci, c.move.fenAfter, c.move.spentMs, toTs(c.now)],
-    );
-    return true;
-  });
+        WHERE id = $1 AND ply = $2 AND status = 'active' RETURNING id
+     )
+     INSERT INTO moves (game_id, ply, san, uci, fen_after, spent_ms, created_at)
+     SELECT id, $2, $10::text, $11::text, $3, $12::int, $6 FROM advanced RETURNING ply`,
+    [
+      c.gameId, c.expectedPly, c.move.fenAfter, c.whiteMs, c.blackMs, toTs(c.now),
+      c.finish?.status ?? "active", c.finish?.result ?? null, c.finish?.reason ?? null,
+      c.move.san, c.move.uci, c.move.spentMs,
+    ],
+  );
+  return saved.length > 0;
 }
 
 export type FinishGuard = {

@@ -1,8 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { pausingAfter, resetDb, testDb } from "@/test/db";
 import type { Db } from "../db/client";
-import { getConnection } from "../db/connections";
-import { getCredentials, readSecret, saveSecret, type Refresh } from "./credentials";
+import { deleteConnection, getConnection } from "../db/connections";
+import { getCredentials, readSecret, saveSecret, type KeyCache, type Refresh } from "./credentials";
 
 const NOW = 1_800_000_000_000;
 const fresh = { accessToken: "at-1", refreshToken: "rt-1", expiresAt: NOW + 3_600_000 };
@@ -73,6 +73,33 @@ describe("getCredentials", () => {
     ]);
     expect(refreshes).toBe(1);
     expect(a).toEqual(b);
+  });
+
+  it("reads an API key once a minute when given a cache, so a move does not wait on it", async () => {
+    await saveSecret(db, "jev", { kind: "key", apiKey: "j-key" }, NOW);
+    const cache: KeyCache = new Map();
+    const key = { kind: "key", apiKey: "j-key" };
+    expect(await getCredentials(db, "jev", NOW, neverRefresh, { cache })).toEqual(key);
+    await deleteConnection(db, "jev");
+    expect(await getCredentials(db, "jev", NOW + 59_000, neverRefresh, { cache })).toEqual(key);
+    expect(await getCredentials(db, "jev", NOW + 61_000, neverRefresh, { cache })).toBeNull();
+  });
+
+  it("reads past the cache when the provider has refused the key", async () => {
+    await saveSecret(db, "jev", { kind: "key", apiKey: "old" }, NOW);
+    const cache: KeyCache = new Map();
+    await getCredentials(db, "jev", NOW, neverRefresh, { cache });
+    await saveSecret(db, "jev", { kind: "key", apiKey: "new" }, NOW);
+    const fresh = { kind: "key", apiKey: "new" };
+    expect(await getCredentials(db, "jev", NOW + 1_000, neverRefresh, { cache, force: true })).toEqual(fresh);
+    expect(await getCredentials(db, "jev", NOW + 2_000, neverRefresh, { cache })).toEqual(fresh);
+  });
+
+  it("never caches sign-in tokens, which have to be checked for expiry on every call", async () => {
+    await saveSecret(db, "codex", { kind: "oauth", tokens: fresh }, NOW);
+    const cache: KeyCache = new Map();
+    await getCredentials(db, "codex", NOW, neverRefresh, { cache });
+    expect(cache.size).toBe(0);
   });
 
   it("keeps the old tokens when the refresh fails", async () => {

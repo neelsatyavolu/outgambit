@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capturedPieces, formatClock, headline, outcomeText, reasonText } from "./format";
+import { capturedPieces, formatClock, headline, materialLead, outcomeText, reasonText } from "./format";
 
 describe("outcomeText", () => {
   const game = { status: "finished", result: "white", reason: "checkmate", playerColor: "white" } as const;
@@ -109,5 +109,22 @@ describe("capturedPieces", () => {
 
   it("does not report promoted pieces as negative losses", () => {
     expect(capturedPieces("QQ2k3/8/8/8/8/8/8/4K3 w - - 0 1").white).toEqual(["r", "r", "b", "b", "n", "n", "p", "p", "p", "p", "p", "p", "p", "p"]);
+  });
+});
+
+describe("materialLead", () => {
+  it("is nothing at the start", () => {
+    expect(materialLead("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "white")).toBe(0);
+  });
+
+  it("is how far ahead a side is on the pieces left, in pawns, and negative for the side behind", () => {
+    // White is missing a queen and a pawn (10); black is missing a rook (5).
+    const fen = "1nbqkbnr/pppppppp/8/8/8/8/1PPPPPPP/RNB1KBNR w KQk - 0 1";
+    expect(materialLead(fen, "black")).toBe(5);
+    expect(materialLead(fen, "white")).toBe(-5);
+  });
+
+  it("counts a promoted queen as a queen", () => {
+    expect(materialLead("Q3k3/8/8/8/8/8/8/4K3 w - - 0 1", "white")).toBe(9);
   });
 });

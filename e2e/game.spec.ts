@@ -14,7 +14,7 @@ test("a visitor plays a game to the end and the owner watches it", async ({ page
 
   await page.getByRole("button", { name: "Start game" }).click();
   await page.waitForURL(/\/game\/[0-9a-f-]{36}$/);
-  await expect(page.getByText("Your move")).toBeVisible();
+  await expect(page.getByText("Your move", { exact: true })).toBeVisible();
 
   // Fool's mate: the scripted opponent answers 1. f3 with e5 and 2. g4 with Qh4#.
   await move(page, "f2", "f3");

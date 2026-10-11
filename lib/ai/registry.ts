@@ -1,7 +1,7 @@
 import "server-only";
 import type { Db } from "../db/client";
 import type { Provider } from "../game/types";
-import { getCredentials } from "../owner/credentials";
+import { getCredentials, type KeyCache } from "../owner/credentials";
 import { codexAdapter } from "./codex";
 import { fakeAdapter } from "./fake";
 import { isFreeModel } from "./free-models";
@@ -31,16 +31,20 @@ function freeOnly(provider: Provider, adapter: Adapter): Adapter {
     isFreeModel(provider, request.model) ? adapter(request) : { kind: "provider_error", message: "not a free model" };
 }
 
-/** The adapter for a provider, using the owner's stored credentials. Null if it is not connected. */
+/**
+ * The adapter for a provider, using the owner's stored credentials. Null if it
+ * is not connected. `keys` holds API keys already read, to save reading them
+ * for every move.
+ */
 export async function getAdapter(
   db: Db,
   provider: Provider,
   now: number,
   fetcher: typeof fetch = fetch,
-  options: { refresh?: boolean } = {},
+  options: { refresh?: boolean; keys?: KeyCache } = {},
 ): Promise<Adapter | null> {
   if (provider === "fake") return fakeEnabled() ? fakeAdapter(fakeScript()) : null;
-  const secret = await getCredentials(db, provider, now, undefined, { force: options.refresh });
+  const secret = await getCredentials(db, provider, now, undefined, { force: options.refresh, cache: options.keys });
   if (!secret) return null;
   if (secret.kind === "oauth") {
     if (provider === "codex") return codexAdapter(secret.tokens, fetcher);

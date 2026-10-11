@@ -600,11 +600,15 @@ textarea.field {
   color: var(--fg-3);
 }
 
-/* Game screen: the board takes what the window's height allows, with the panel right beside it. */
+/*
+ * Game screen: the board takes what the window's height allows. The panel
+ * beside it is stretched to the same height, so the opponent's clock is level
+ * with the top of the board and the player's with the bottom.
+ */
 .game {
   display: flex;
   gap: 32px;
-  align-items: flex-start;
+  align-items: stretch;
   margin-top: 24px;
 }
 
@@ -651,10 +655,19 @@ textarea.field {
 }
 
 .seat .lost {
-  display: block;
-  min-height: 18px;
-  font-size: 15px;
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  font-size: 18px;
+  line-height: 1;
   letter-spacing: 1px;
+  color: var(--fg-2);
+}
+
+.seat .lead {
+  margin-left: 8px;
+  font-size: 12px;
+  letter-spacing: 0;
   color: var(--fg-3);
 }
 
@@ -667,17 +680,22 @@ textarea.field {
   color: var(--fg-3);
 }
 
+/* The clock that is running is the one filled in, so it can be found at a glance. */
 .clock.running {
   border-color: var(--fg);
-  color: var(--fg);
+  background: var(--fg);
+  color: var(--bg);
 }
 
 .clock.low {
-  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger);
 }
 
+/* The move list takes whatever height the rest of the panel leaves. */
 .moves {
-  height: 260px;
+  flex: 1 1 0;
+  min-height: 96px;
   overflow-y: auto;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
@@ -735,6 +753,53 @@ textarea.field {
   min-height: 38px;
 }
 
+.thinking .yours {
+  color: var(--fg);
+}
+
+.thinking .cancel {
+  margin-left: auto;
+}
+
+/* How the game ended, in the panel, so the board does not move when it does. */
+.result {
+  padding: 16px;
+  border-top: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+}
+
+.result h2 {
+  margin: 0 0 4px;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 21px;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+}
+
+.result p {
+  margin: 0;
+  color: var(--fg-2);
+}
+
+.result .ratings {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.result .ratings span {
+  display: block;
+}
+
+.result .actions {
+  margin-top: 12px;
+}
+
+.game-error {
+  margin: 0;
+  padding: 0 16px 12px;
+}
+
 .controls {
   display: flex;
   align-items: center;
@@ -743,9 +808,15 @@ textarea.field {
   padding: 12px 16px;
 }
 
-.controls .steps {
+.controls .steps,
+.controls .confirm {
   display: flex;
+  align-items: center;
   gap: 4px;
+}
+
+.controls .confirm .label {
+  margin-right: 4px;
 }
 
 .promotion {
@@ -856,25 +927,76 @@ textarea.field {
     gap: 0;
   }
 
+  /* One column, with each side's name and clock against its own edge of the board. */
   .game {
     flex-direction: column;
-    gap: 16px;
+    gap: 8px;
+    max-width: 640px;
   }
 
   .board-wrap {
     flex: none;
+    order: 2;
     width: 100%;
-    max-width: 640px;
   }
 
+  /* The panel's parts take their places in the column one by one. */
   .game .side {
-    flex: none;
-    width: 100%;
-    max-width: 640px;
+    display: contents;
+  }
+
+  .seat {
+    padding: 0;
+  }
+
+  .seat.top {
+    order: 1;
+  }
+
+  .seat.bottom {
+    order: 3;
+  }
+
+  .seat .who {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 8px;
+  }
+
+  .clock {
+    padding: 2px 8px;
+    font-size: 22px;
+  }
+
+  .result {
+    order: 4;
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--accent);
+  }
+
+  .thinking {
+    order: 5;
+    padding: 0;
+    border-top: 0;
+    min-height: 30px;
   }
 
   .moves {
+    flex: none;
+    order: 6;
     height: 160px;
+    border: 1px solid var(--border);
+  }
+
+  .controls {
+    order: 7;
+    padding: 4px 0 0;
+  }
+
+  .game-error {
+    order: 8;
+    padding: 0;
   }
 
   .form-grid {

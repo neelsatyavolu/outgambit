@@ -12,6 +12,12 @@ export type Refresh = (provider: OAuthProvider, refreshToken: string, options: {
 /** Refresh this long before a token expires. */
 const REFRESH_MARGIN_MS = 60_000;
 
+/** How long an API key is used before it is read from the database again. */
+const KEY_CACHE_MS = 60_000;
+
+/** API keys already read, and when. Sign-in tokens are never kept: they expire and are refreshed under a lock. */
+export type KeyCache = Map<Provider, { secret: Secret; readAt: number }>;
+
 export const readSecret = (blob: string): Secret => JSON.parse(decrypt(blob)) as Secret;
 
 export function saveSecret(q: Queryable, provider: Provider, secret: Secret, now: number): Promise<void> {
@@ -26,18 +32,32 @@ const isFresh = (secret: Secret, now: number): boolean =>
  * OAuth tokens near expiry are refreshed while holding the row lock, so two
  * games cannot spend the same refresh token. `force` refreshes regardless,
  * for when the provider has rejected tokens that had not expired.
+ *
+ * With a `cache`, an API key read within the last minute is not read again,
+ * which saves a trip to the database on every move against a fast opponent.
+ * The price is that a key the owner replaces or removes can stay in use for
+ * up to that minute. `force` reads past the cache.
  */
 export async function getCredentials(
   db: Db,
   provider: Provider,
   now: number,
   refresh: Refresh = refreshTokens,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; cache?: KeyCache } = {},
 ): Promise<Secret | null> {
+  const kept = options.force ? undefined : options.cache?.get(provider);
+  if (kept && now - kept.readAt < KEY_CACHE_MS) return kept.secret;
   const stored = await getConnection(db, provider);
-  if (!stored) return null;
+  if (!stored) {
+    options.cache?.delete(provider);
+    return null;
+  }
   const secret = readSecret(stored.secret);
-  if (secret.kind === "key" || (isFresh(secret, now) && !options.force)) return secret;
+  if (secret.kind === "key") {
+    options.cache?.set(provider, { secret, readAt: now });
+    return secret;
+  }
+  if (isFresh(secret, now) && !options.force) return secret;
 
   return db.transaction(async (tx) => {
     const locked = await getConnection(tx, provider, true);
