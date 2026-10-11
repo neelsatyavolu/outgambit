@@ -620,6 +620,7 @@ textarea.field {
 }
 
 .board-frame {
+  position: relative;
   border: 1px solid var(--border-strong);
 }
 
@@ -748,11 +749,61 @@ textarea.field {
 }
 
 .promotion {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: rgba(14, 14, 13, 0.5);
+}
+
+.promotion .choices {
+  position: absolute;
+  top: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 12px;
+  flex-direction: column;
+  width: 12.5%;
+}
+
+.promotion .choices.up {
+  top: auto;
+  bottom: 0;
+  flex-direction: column-reverse;
+}
+
+.promotion button {
+  display: block;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  box-shadow: inset 0 -1px 0 var(--square-dark);
+  background: var(--square-light);
+  cursor: pointer;
+  transition: background 150ms var(--ease);
+}
+
+.promotion svg {
+  display: block;
+}
+
+.promotion .up button {
+  box-shadow: inset 0 1px 0 var(--square-dark);
+}
+
+.promotion button:hover {
+  background: var(--accent);
+}
+
+.promotion button.cancel {
+  aspect-ratio: 2;
+  box-shadow: none;
+  background: var(--bg);
+  color: var(--fg-2);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.promotion button.cancel:hover {
+  color: var(--fg);
 }
 
 .form-grid {

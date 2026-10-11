@@ -2,8 +2,9 @@
 
 import { Chess, type Square } from "chess.js";
 import { useMemo, useState, type CSSProperties } from "react";
-import { Chessboard } from "react-chessboard";
+import { Chessboard, defaultPieces } from "react-chessboard";
 import { premoveTargets, premoveUci, withPremoves, type Placement } from "@/lib/chess/premove";
+import { promotionPlace } from "@/lib/chess/promotion";
 import type { Color } from "@/lib/game/types";
 
 type Target = { to: string; promotion: boolean };
@@ -157,28 +158,44 @@ export function Board(props: {
             onSquareRightClick: cancelPremoves,
           }}
         />
+        {pending && interactive && (
+          <Promotion pending={pending} orientation={props.orientation} onMove={onMove} onClose={() => setPending(null)} />
+        )}
       </div>
-      {pending && interactive && (
-        <div className="promotion" role="group" aria-label="Promote pawn to">
-          <span className="label">Promote to</span>
-          {PROMOTIONS.map((option) => (
-            <button
-              key={option.piece}
-              type="button"
-              className="btn ghost small"
-              onClick={() => {
-                setPending(null);
-                onMove(`${pending.from}${pending.to}${option.piece}`);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-          <button type="button" className="btn ghost small" onClick={() => setPending(null)}>
-            Cancel
+    </div>
+  );
+}
+
+/** The pieces a pawn may become, stacked on its file from the square it promotes on. A click elsewhere on the board calls it off. */
+function Promotion(props: { pending: Pending; orientation: Color; onMove: (uci: string) => void; onClose: () => void }) {
+  const { pending, onClose } = props;
+  const place = promotionPlace(pending.to, props.orientation);
+  const color = props.orientation === "white" ? "w" : "b";
+  return (
+    <div className="promotion" onClick={onClose}>
+      <div
+        className={place.top ? "choices" : "choices up"}
+        style={{ left: `${place.column * 12.5}%` }}
+        role="group"
+        aria-label="Promote pawn to"
+      >
+        {PROMOTIONS.map((option) => (
+          <button
+            key={option.piece}
+            type="button"
+            aria-label={option.label}
+            onClick={() => {
+              onClose();
+              props.onMove(`${pending.from}${pending.to}${option.piece}`);
+            }}
+          >
+            {defaultPieces[`${color}${option.piece.toUpperCase()}`]()}
           </button>
-        </div>
-      )}
+        ))}
+        <button type="button" className="cancel" aria-label="Cancel">
+          ×
+        </button>
+      </div>
     </div>
   );
 }
