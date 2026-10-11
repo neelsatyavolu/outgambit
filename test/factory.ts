@@ -26,6 +26,7 @@ export function makeGame(overrides: Partial<Game> = {}): Game {
     blackMs: 600_000,
     turnStartedAt: NOON,
     aiLeaseUntil: null,
+    aiError: null,
     status: "active",
     result: null,
     reason: null,

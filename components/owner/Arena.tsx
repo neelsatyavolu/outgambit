@@ -105,7 +105,9 @@ export function Arena({ version }: { version: number }) {
                 {PROVIDER_LABELS[model.provider]}
               </span>
             </span>
-            <span className="meta">{model.note}</span>
+            <span className="meta">
+              {model.arena && model.sittingOut ? `Sitting out today: ${model.sittingOut}` : model.note}
+            </span>
           </label>
         ))}
       </div>

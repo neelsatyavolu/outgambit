@@ -6,7 +6,7 @@ import { dayKey } from "../game/limits";
 import type { Provider } from "../game/types";
 import { CONNECTABLE } from "../owner/admin";
 import { isOffered, listForOwner } from "../owner/catalog";
-import { arenaGamesPerDay } from "./run";
+import { arenaGamesPerDay, sittingOut } from "./run";
 import { cronSecret } from "./schedule";
 
 export type ArenaStatus = {
@@ -18,17 +18,31 @@ export type ArenaStatus = {
   /** Whether games start by themselves. False when the schedule's secret is not set. */
   scheduled: boolean;
   /** Every model on offer to players, and whether it also plays in the arena. */
-  models: Array<{ provider: Provider; id: string; label: string; arena: boolean; note: string }>;
+  models: Array<{
+    provider: Provider;
+    id: string;
+    label: string;
+    arena: boolean;
+    note: string;
+    /** Why the model is out of the arena for the rest of today. Null while it may play. */
+    sittingOut: string | null;
+  }>;
 };
 
 /** What the owner sees of the arena: its budget, today's count and who takes part. */
 export async function arenaStatus(q: Queryable, now: number): Promise<ArenaStatus> {
-  const [gamesPerDay, startedToday, live, models] = await Promise.all([
+  const day = dayKey(now);
+  const [gamesPerDay, startedToday, live, models, out] = await Promise.all([
     arenaGamesPerDay(q),
-    countArenaForDay(q, dayKey(now)),
+    countArenaForDay(q, day),
     activeArenaGame(q),
     listForOwner(q),
+    sittingOut(q, day),
   ]);
+  const stopped = (m: { provider: Provider; id: string }): string | null => {
+    const found = out.find((o) => o.provider === m.provider && o.model === m.id);
+    return found ? (found.why ?? "could not be reached") : null;
+  };
   return {
     gamesPerDay,
     maxGamesPerDay: ARENA.maxGamesPerDay,
@@ -41,6 +55,7 @@ export async function arenaStatus(q: Queryable, now: number): Promise<ArenaStatu
       label: m.label,
       arena: m.arena,
       note: CONNECTABLE.find((c) => c.provider === m.provider)?.note ?? "",
+      sittingOut: stopped(m),
     })),
   };
 }

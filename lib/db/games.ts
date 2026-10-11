@@ -34,6 +34,7 @@ export function rowToGame(row: Row): Game {
     blackMs: row.black_ms as number,
     turnStartedAt: fromTs(row.turn_started_at),
     aiLeaseUntil: fromTsOrNull(row.ai_lease_until),
+    aiError: (row.ai_error as string | null | undefined) ?? null,
     status: row.status as Status,
     result: row.result as Result | null,
     reason: row.reason as Reason | null,
@@ -249,6 +250,7 @@ export async function claimLease(
 }
 
 const HELD = "id = $1 AND ply = $2 AND status = 'active' AND ai_lease_until = $3::timestamptz";
+const AI_ERROR_LIMIT = 80;
 
 /** Moves a lease's end. False if the caller no longer holds it. */
 export async function renewLease(q: Queryable, id: string, ply: number, held: number, until: number): Promise<boolean> {
@@ -263,7 +265,8 @@ export type AttemptCounts = { invalid: number; failures: number };
 /**
  * Counts one failed attempt at the AI's current turn. The counts live in the
  * database so they survive a hand-over between runners. Null if the caller
- * no longer holds the lease.
+ * no longer holds the lease. `why` is what stopped a call that failed, kept
+ * so the owner can see it.
  */
 export async function recordAttempt(
   q: Queryable,
@@ -271,11 +274,13 @@ export async function recordAttempt(
   ply: number,
   held: number,
   kind: "invalid" | "provider_error",
+  why: string | null = null,
 ): Promise<AttemptCounts | null> {
   const column = kind === "invalid" ? "ai_invalid" : "ai_failures";
   const rows = await q.query<{ ai_invalid: number; ai_failures: number }>(
-    `UPDATE games SET ${column} = ${column} + 1 WHERE ${HELD} RETURNING ai_invalid, ai_failures`,
-    [id, ply, toTs(held)],
+    `UPDATE games SET ${column} = ${column} + 1, ai_error = COALESCE($4::text, ai_error)
+      WHERE ${HELD} RETURNING ai_invalid, ai_failures`,
+    [id, ply, toTs(held), why === null ? null : why.slice(0, AI_ERROR_LIMIT)],
   );
   return rows[0] ? { invalid: rows[0].ai_invalid, failures: rows[0].ai_failures } : null;
 }

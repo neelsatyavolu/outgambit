@@ -58,6 +58,7 @@ export async function getGameView(deps: Deps, gameId: string, viewer: Viewer): P
     modelLabel: game.modelLabel,
     effort: game.effort,
     rival: game.rival && { label: game.rival.modelLabel, effort: game.rival.effort },
+    aiError: game.aiError,
     timeControl: game.timeControl,
     fen: game.fen,
     turn: turnAt(game.ply),

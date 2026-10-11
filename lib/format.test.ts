@@ -42,7 +42,7 @@ describe("formatClock", () => {
 });
 
 describe("headline", () => {
-  const base = { status: "finished", playerColor: "white", modelLabel: "GPT A" } as const;
+  const base = { status: "finished", playerColor: "white", modelLabel: "GPT A", turn: "white" } as const;
 
   it("tells the player they won", () => {
     expect(headline({ ...base, result: "white", reason: "checkmate" }, false)).toEqual({
@@ -95,8 +95,13 @@ describe("headline", () => {
     expect(headline({ ...arena, result: "draw", reason: "move_limit" }, true)).toEqual({
       title: "Draw", detail: "Neither model had won by the arena's move limit.",
     });
-    expect(headline({ ...arena, status: "aborted", result: null, reason: "provider_error" }, true)?.detail).toBe(
-      "One of the models could not be reached. The game is not rated.",
+    // The model that could not be reached is the one whose turn it still is.
+    const calledOff = { ...arena, status: "aborted", result: null, reason: "provider_error" } as const;
+    expect(headline({ ...calledOff, aiError: "HTTP 429" }, true)?.detail).toBe(
+      "Grok B could not be reached (HTTP 429). The game is not rated.",
+    );
+    expect(headline({ ...calledOff, turn: "black", aiError: null }, true)?.detail).toBe(
+      "GPT A could not be reached. The game is not rated.",
     );
     expect(headline({ ...arena, status: "aborted", result: null, reason: "called_off" }, true)).toEqual({
       title: "Game aborted",

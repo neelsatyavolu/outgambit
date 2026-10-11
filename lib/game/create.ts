@@ -56,6 +56,7 @@ function newGame(deps: Deps, input: CreateInput, model: OfferedModel, now: numbe
     blackMs: control.initialMs,
     turnStartedAt: now,
     aiLeaseUntil: null,
+    aiError: null,
     status: "active",
     result: null,
     reason: null,

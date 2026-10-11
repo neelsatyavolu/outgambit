@@ -295,7 +295,10 @@ describe("the arena", () => {
     const status = async () => (await (await arena()).GET(request("GET", "/api/owner/arena", { origin: null }))).json();
     expect((await status()).data).toMatchObject({
       maxGamesPerDay: 24, scheduled: false,
-      models: [{ provider: "fake", id: "fake-1", arena: true }, { provider: "fake", id: "fake-2", arena: true }],
+      models: [
+        { provider: "fake", id: "fake-1", arena: true, sittingOut: null },
+        { provider: "fake", id: "fake-2", arena: true, sittingOut: null },
+      ],
     });
     expect((await (await change({ gamesPerDay: 3 })).json()).data.gamesPerDay).toBe(3);
     const out = await (await change({ provider: "fake", id: "fake-2", arena: false })).json();

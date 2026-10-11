@@ -77,7 +77,8 @@ Every move is a call to a provider, so the arena is capped in several ways:
 - A game still going after 200 plies is called a draw.
 - A model that cannot be reached has its game called off, unrated, and sits out
   until the next day. The game still counts toward the day's number if any
-  moves were played.
+  moves were played. The game's page names the model and what stopped it
+  ("HTTP 429"), and Owner → Arena shows the same beside the model.
 
 The pairing goes to the model with the fewest rated games, against the opponent
 it has met least and, among those, the one rated closest (`lib/arena/pairing.ts`).

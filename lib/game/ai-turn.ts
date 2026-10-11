@@ -134,7 +134,8 @@ export async function runAiTurn(
     const result = await ask(deps, seat, { history, rejected, leftMs, refresh });
     if (result.kind === "move") return play(deps, game, mover, history, result.san);
 
-    const counts = await recordAttempt(deps.db, game.id, game.ply, lease, result.kind);
+    const why = result.kind === "provider_error" ? result.message : null;
+    const counts = await recordAttempt(deps.db, game.id, game.ply, lease, result.kind, why);
     if (!counts) return; // another runner has the turn, or the game is over
     if (result.kind === "invalid") {
       rejected = result.raw;

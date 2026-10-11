@@ -39,8 +39,19 @@ export async function setArenaGamesPerDay(q: Queryable, games: number): Promise<
   if (live) await finishGame(q, live.id, { status: "aborted", result: null, reason: "called_off" });
 }
 
-const sameModel = (a: Pick<Game, "provider" | "model">, b: OfferedModel): boolean =>
-  a.provider === b.provider && a.model === b.id;
+/** A model that could not answer in an arena game, and what stopped it, if that was recorded. */
+export type SatOut = Pick<Game, "provider" | "model"> & { why: string | null };
+
+/**
+ * The models that could not answer in an arena game on `day`: in each game
+ * called off for that, the one whose turn it was.
+ */
+export async function sittingOut(q: Queryable, day: string): Promise<SatOut[]> {
+  return (await abortedArenaGames(q, day)).flatMap((game) => {
+    const seat = seatOf(game, turnAt(game.ply));
+    return seat ? [{ provider: seat.provider, model: seat.model, why: game.aiError }] : [];
+  });
+}
 
 /**
  * The lines that may be paired today. A model that could not answer in an
@@ -48,10 +59,9 @@ const sameModel = (a: Pick<Game, "provider" | "model">, b: OfferedModel): boolea
  * is down or out of quota is not asked again and again.
  */
 async function field(q: Queryable, models: readonly OfferedModel[], day: string): Promise<Entry[]> {
-  const [ratings, aborted] = await Promise.all([listModelRatings(q), abortedArenaGames(q, day)]);
-  const failed = aborted.flatMap((game) => seatOf(game, turnAt(game.ply)) ?? []);
+  const [ratings, out] = await Promise.all([listModelRatings(q), sittingOut(q, day)]);
   return models
-    .filter((model) => !failed.some((seat) => sameModel(seat, model)))
+    .filter((model) => !out.some((o) => o.provider === model.provider && o.model === model.id))
     .flatMap((model) => {
       const effort = model.supportsEffort ? ARENA.effort : null;
       const key = modelKey(model.provider, model.id, effort);
@@ -94,6 +104,7 @@ function newGame({ pool, white, black }: Pairing, now: number): Game {
     blackMs: control.initialMs,
     turnStartedAt: now,
     aiLeaseUntil: null,
+    aiError: null,
     status: "active",
     result: null,
     reason: null,

@@ -42,6 +42,8 @@ export type Game = {
   blackMs: number;
   turnStartedAt: number;
   aiLeaseUntil: number | null;
+  /** What stopped the last call to a model that failed ("HTTP 429"). Null if none has. */
+  aiError: string | null;
   status: Status;
   result: Result | null;
   reason: Reason | null;
@@ -69,6 +71,8 @@ export type GameView = {
   effort: Effort | null;
   /** In an arena game, the model on the player's side of the board. */
   rival: { label: string; effort: Effort | null } | null;
+  /** What stopped the last call to a model that failed. Null if none has. */
+  aiError: string | null;
   timeControl: string;
   fen: string;
   turn: Color;

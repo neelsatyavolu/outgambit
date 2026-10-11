@@ -50,8 +50,8 @@ export function outcomeText(game: Pick<GameView, "status" | "result" | "reason" 
   return `${verdict} · ${reasonText(game.reason)}`;
 }
 
-type Finished = Pick<GameView, "status" | "result" | "reason" | "playerColor" | "modelLabel"> &
-  Partial<Pick<GameView, "rival">>;
+type Finished = Pick<GameView, "status" | "result" | "reason" | "playerColor" | "modelLabel" | "turn"> &
+  Partial<Pick<GameView, "rival" | "aiError">>;
 
 function detailFor(game: Finished, spectator: boolean): string {
   // In an arena game the player's side is a model too, and is named like one.
@@ -79,7 +79,11 @@ function detailFor(game: Finished, spectator: boolean): string {
     case "called_off":
       return "The arena was switched off while this game was being played. The game is not rated.";
     case "provider_error":
-      if (game.rival) return "One of the models could not be reached. The game is not rated.";
+      if (game.rival) {
+        // The model that was asked is the one whose turn it still is.
+        const asked = game.turn === game.playerColor ? game.rival.label : game.modelLabel;
+        return `${asked} could not be reached${game.aiError ? ` (${game.aiError})` : ""}. The game is not rated.`;
+      }
       return spectator
         ? `${game.modelLabel} is unavailable. The game does not count toward the daily limits.`
         : `${game.modelLabel} is unavailable. This game does not count toward your daily limit.`;

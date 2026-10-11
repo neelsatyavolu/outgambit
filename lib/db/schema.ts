@@ -86,6 +86,8 @@ const STATEMENTS = [
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS rival_model text`,
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS rival_label text`,
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS rival_effort text`,
+  // What stopped the last call to a model that failed, in the adapter's few fixed words.
+  `ALTER TABLE games ADD COLUMN IF NOT EXISTS ai_error text`,
   // Whether a model takes part in the arena. Null means the provider's default.
   `ALTER TABLE models ADD COLUMN IF NOT EXISTS arena boolean`,
   `CREATE TABLE IF NOT EXISTS settings (

@@ -10,7 +10,7 @@ import { getGameView } from "../game/state";
 import type { Game } from "../game/types";
 import type { OfferedModel } from "../owner/catalog";
 import {
-  ARENA_PLAYER, arenaGamesPerDay, driveArenaGame, runArena, setArenaGamesPerDay, startArenaGame,
+  ARENA_PLAYER, arenaGamesPerDay, driveArenaGame, runArena, setArenaGamesPerDay, sittingOut, startArenaGame,
 } from "./run";
 
 let db: Db;
@@ -179,7 +179,12 @@ describe("driveArenaGame", () => {
     const h = arena([{ kind: "provider_error", message: "HTTP 429" }]);
     const game = await started(h);
     expect(await driveArenaGame(h.deps, game.id, h.clock.now + MINUTE)).toBe("over");
-    expect(await getGame(db, game.id)).toMatchObject({ status: "aborted", result: null, reason: "provider_error" });
+    expect(await getGame(db, game.id)).toMatchObject({
+      status: "aborted", result: null, reason: "provider_error", aiError: "HTTP 429",
+    });
+    // The model that was asked sits out, and the owner can see what stopped it.
+    const { provider, model } = game.rival!;
+    expect(await sittingOut(db, game.day)).toEqual([{ provider, model, why: "HTTP 429" }]);
   });
 
   it("calls a draw once a game has gone on too long", async () => {
