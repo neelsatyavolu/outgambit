@@ -1,5 +1,6 @@
 import { Chess, type Color as Side, type Move, type PieceSymbol, type Square } from "chess.js";
 import { PIECE_NAMES } from "./describe";
+import type { LegalMove } from "./rules";
 import { VALUES } from "./tactics";
 
 /**
@@ -39,6 +40,10 @@ type Scene = {
   winning: boolean;
   /** Where the enemy king stands, and how many squares it could step to now. Null where that cannot be worked out. */
   enemyKing: { square: Square; room: number | null } | null;
+  /** Mates and forks already available, so a move is only credited with one it creates. */
+  known: ReadonlySet<string>;
+  /** UCI of the moves that can be played before the move being described. */
+  legal: ReadonlySet<string>;
 };
 
 const OPENING_PLIES = 20;
@@ -185,6 +190,81 @@ function placementNote(chess: Chess, move: Move, scene: Scene): string | null {
   return move.captured ? null : "moves a piece that is already developed";
 }
 
+/**
+ * The move lands somewhere it can be taken for less than it is worth. A king
+ * is not counted as an attacker of a defended piece, because it cannot take one.
+ */
+function hangs(chess: Chess, move: Move): boolean {
+  const ours = VALUES[move.promotion ?? move.piece];
+  const won = move.captured ? VALUES[move.captured] : 0;
+  if (won >= ours) return false;
+  const them = chess.attackers(move.to, other(move.color));
+  if (them.length === 0) return false;
+  if (chess.attackers(move.to, move.color).length === 0) return true;
+  let cheapest = Number.POSITIVE_INFINITY;
+  for (const square of them) {
+    const piece = chess.get(square);
+    if (!piece || piece.type === "k") continue;
+    if (VALUES[piece.type] < cheapest) cheapest = VALUES[piece.type];
+  }
+  return cheapest < ours;
+}
+
+/**
+ * A mate or a fork this move makes available on the move after it, when the
+ * move does not hang. The board is the one after `move` has been played.
+ */
+function ideaFor(chess: Chess, move: Move): { rank: number; key: string; text: string } | null {
+  if (hangs(chess, move)) return null;
+  const check = chess.inCheck();
+  if (!check && (move.piece === "q" || move.promotion)) {
+    const again = movingAgain(chess, move.color);
+    if (again?.moves().some((san) => san.endsWith("#"))) {
+      return { rank: 3, key: `mate:${move.lan}`, text: "a checkmate threat" };
+    }
+  }
+  const said = threatNote(chess, move, check);
+  if (said?.startsWith("forks ")) return { rank: 2, key: `fork:${said}`, text: `a fork of ${said.slice("forks ".length)}` };
+  return null;
+}
+
+/** The mates and forks the side to move already has. Leaves the board as it found it. */
+function knownThreats(chess: Chess): Set<string> {
+  const keys = new Set<string>();
+  for (const move of chess.moves({ verbose: true })) {
+    if ((move.piece === "p" && !move.promotion) || move.piece === "k") continue;
+    chess.move(move.san);
+    const idea = ideaFor(chess, move);
+    chess.undo();
+    if (idea) keys.add(idea.key);
+  }
+  return keys;
+}
+
+/**
+ * What this move prepares, if it makes a mate or a fork possible on the next
+ * move and that threat was not already there. Either the piece just moved can
+ * now do it, or a queen move that was already legal has become mate. `next`
+ * is this side to move again, and is left as it was found.
+ */
+function planNote(next: Chess, played: Move, scene: Scene): string | null {
+  if (played.piece === "q" && scene.ply < EARLY_QUEEN_PLIES) return null;
+  if (played.piece === "k" && scene.phase !== "endgame" && !played.san.startsWith("O-O")) return null;
+  let best: { rank: number; text: string } | null = null;
+  for (const move of next.moves({ verbose: true })) {
+    if ((move.piece === "p" && !move.promotion) || move.piece === "k") continue;
+    const ownPiece = move.from === played.to;
+    if (!ownPiece && move.piece !== "q" && !move.promotion) continue;
+    if (!ownPiece && !scene.legal.has(move.lan)) continue;
+    next.move(move.san);
+    const idea = ideaFor(next, move);
+    next.undo();
+    if (!idea || scene.known.has(idea.key)) continue;
+    if (!best || idea.rank > best.rank) best = idea;
+  }
+  return best ? `sets up ${best.text}` : null;
+}
+
 /** Whether the move leaves the enemy king fewer squares to step to than it has now. Only a side that is winning is told. */
 function boxesIn(chess: Chess, scene: Scene): boolean {
   const king = scene.enemyKing;
@@ -207,11 +287,15 @@ function notesFor(chess: Chess, move: Move, before: number, scene: Scene): strin
     VALUES[move.captured] === VALUES[move.piece] &&
     chess.attackers(move.to, other(move.color)).length > 0;
   const placement = castles ? "makes the king safe" : placementNote(chess, move, scene);
+  const mateThreat = next?.moves().some((san) => san.endsWith("#")) ? "threatens checkmate next move" : null;
+  const threat = castles ? null : threatNote(chess, move, check);
   const found = [
     draws ? NOTE.draws : null,
-    next?.moves().some((san) => san.endsWith("#")) ? "threatens checkmate next move" : null,
+    mateThreat,
     !draws && scene.seen.has(positionKey(chess)) ? NOTE.repeats : null,
-    castles ? null : threatNote(chess, move, check),
+    threat,
+    // A move that already threatens something is described by that, not by what it prepares as well.
+    !draws && !mateThreat && !threat && next ? planNote(next, move, scene) : null,
     trade ? NOTE.trade : null,
     boxesIn(chess, scene) ? NOTE.boxes : null,
     // A move already described by where its piece lands is not also described by how free it is there.
@@ -225,14 +309,18 @@ function surveyBoard(chess: Chess, ply: number, seen: ReadonlySet<string>, only?
   const side = chess.turn();
   const lead = material(chess, side).all - material(chess, other(side)).all;
   const king = pieces(chess).find((p) => p.type === "k" && p.color !== side);
+  const legal = chess.moves({ verbose: true });
+  // An empty list asks for the phase and the lead only, so the threat scan can be skipped.
+  const noting = only === undefined || only.length > 0;
   const scene: Scene = {
     phase: phaseOf(chess, ply),
     ply,
     seen,
     winning: lead >= WINNING_LEAD,
     enemyKing: king ? { square: king.square, room: movingAgain(chess, king.color)?.moves({ square: king.square }).length ?? null } : null,
+    known: noting ? knownThreats(chess) : new Set(),
+    legal: noting ? new Set(legal.map((m) => m.lan)) : new Set(),
   };
-  const legal = chess.moves({ verbose: true });
   const movesFrom = (square: string): number => legal.filter((m) => m.from === square).length;
   return {
     phase: scene.phase,
@@ -255,4 +343,72 @@ export function survey(history: readonly string[], only?: readonly string[]): Su
 /** The same for a position given as a FEN, `ply` half-moves into its game. */
 export function surveyPosition(fen: string, ply: number, only?: readonly string[]): Survey {
   return surveyBoard(new Chess(fen), ply, new Set(), only);
+}
+
+/** How many moves to show. Past this, the call is slower and the model repeats itself. */
+const MAX_OPTIONS = 6;
+
+/**
+ * How well a note speaks of a move. A mate threat outranks development, and
+ * an early queen or a king walk counts against the move. Zero is silence.
+ */
+function weight(note: string, lead: number): number {
+  if (note.startsWith("threatens checkmate")) return 50;
+  // A mate prepared for next move outranks development. A fork prepared for then sits just under a fork played now.
+  if (note.startsWith("sets up a checkmate")) return 30;
+  if (note.startsWith("sets up a fork")) return 24;
+  if (note.startsWith("forks") || note.startsWith("attacks")) return 28;
+  if (note === NOTE.boxes) return 24;
+  if (note === "makes the king safe") return 22;
+  if (note.startsWith("pushes a passed") || note.startsWith("advances a passed")) return 20;
+  if (note === "develops a piece" || note === "claims the centre") return 18;
+  if (note.startsWith("puts the rook")) return 16;
+  if (note.startsWith("brings the king")) return 14;
+  if (note.startsWith("makes the") && note.endsWith("more active")) return 10;
+  if (note === NOTE.trade) return lead > 0 ? 6 : lead < 0 ? -8 : 0;
+  if (note === NOTE.repeats) return lead < 0 ? 4 : -30;
+  if (note === NOTE.draws) return lead < 0 ? 30 : -40;
+  if (note === "brings the queen out early") return -18;
+  if (note === "moves the king off its home square") return -22;
+  if (note === "puts the knight on the edge of the board") return -14;
+  if (note === "loosens the pawns in front of the king") return -14;
+  if (note === "moves a piece that is already developed") return -8;
+  if (note.startsWith("makes the") && note.endsWith("less active")) return -8;
+  return 0;
+}
+
+function take<T>(items: readonly T[], n: number, rng: () => number): T[] {
+  const pool = [...items];
+  const out: T[] = [];
+  while (out.length < n && pool.length > 0) {
+    const index = Math.min(pool.length - 1, Math.floor(rng() * pool.length));
+    out.push(pool.splice(index, 1)[0]!);
+  }
+  return out;
+}
+
+/**
+ * The moves worth asking about. A long list costs tokens twice (the question
+ * is asked in two orders) and these models play the same way once most of the
+ * options say nothing. Moves the notes speak against are left out when a move
+ * they speak for exists, and the list stops at six. The best-spoken move is
+ * always kept. `rng` only chooses among moves the notes rate alike.
+ */
+export function focusMoves(view: Survey, moves: readonly LegalMove[], rng: () => number): LegalMove[] {
+  if (moves.length <= MAX_OPTIONS) return [...moves];
+  const ranked = moves
+    .map((move) => ({
+      move,
+      score: (view.notes.get(move.uci) ?? []).reduce((sum, note) => sum + weight(note, view.lead), 0),
+    }))
+    .sort((a, b) => b.score - a.score || (a.move.uci < b.move.uci ? -1 : 1));
+  const best = ranked[0]?.score ?? 0;
+  const spoken = ranked.filter((item) => item.score > 0);
+  const pool = spoken.length > 0 ? spoken : ranked.filter((item) => item.score === best);
+  if (pool.length <= MAX_OPTIONS) return moves.filter((move) => pool.some((item) => item.move.uci === move.uci));
+  const elite = pool.filter((item) => item.score === best);
+  const rest = pool.filter((item) => item.score !== best);
+  const picked = elite.length >= MAX_OPTIONS ? take(elite, MAX_OPTIONS, rng) : [...elite, ...take(rest, MAX_OPTIONS - elite.length, rng)];
+  const keep = new Set(picked.map((item) => item.move.uci));
+  return moves.filter((move) => keep.has(move.uci));
 }

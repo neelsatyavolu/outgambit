@@ -23,7 +23,8 @@ describe("jevAdapter", () => {
     expect(calls[0].body.model).toBe("jev-latest");
     const { a, b } = questionsOf(calls[0].body);
     expect(a.type).toBe("choice");
-    expect(Object.keys(a.criteria).sort()).toEqual(request.legalMoves.map((m) => m.uci).sort());
+    // Pointless pawn moves and king walks are left out, so the call stays short.
+    expect(Object.keys(a.criteria).sort()).toEqual(["b1c3", "d2d4", "e2e4", "g1f3"]);
     expect(Object.keys(b.criteria).sort()).toEqual(Object.keys(a.criteria).sort());
     expect(Object.keys(b.criteria)).not.toEqual(Object.keys(a.criteria));
   });
@@ -41,7 +42,7 @@ describe("jevAdapter", () => {
     const { criteria } = questionsOf(calls[0].body).a;
     expect(criteria.g1f3).toBe("Knight from g1 to f3, develops a piece");
     expect(criteria.e2e4).toBe("Pawn from e2 to e4, claims the centre");
-    expect(criteria.a2a3).toBe("Pawn from a2 to a3");
+    expect(criteria.a2a3).toBeUndefined();
   });
 
   it("tells Jev the phase of the game and who is ahead", async () => {
@@ -68,6 +69,8 @@ describe("jevAdapter", () => {
   it("only gives advice about something when an option does it, to keep the question short", () => {
     const plain = instructionsFor("middlegame").guidance;
     expect(plain).not.toMatch(/repeats|trade|draws|winning/);
+    expect(plain).not.toContain("sets up");
+    expect(instructionsFor("middlegame", 0, ["sets up a checkmate threat"]).guidance).toContain("sets up a threat for the next move");
     expect(instructionsFor("middlegame", 0, [NOTE.repeats]).guidance).toContain("repeats an earlier position");
     expect(instructionsFor("middlegame", 0, [NOTE.draws]).guidance).toContain("draws the game at once");
     // A trade is good or bad by who is ahead, and neither when the material is level.
@@ -103,12 +106,33 @@ describe("jevAdapter", () => {
     expect(a.instructions).toEqual(INSTRUCTIONS);
   });
 
-  it("warns about an early queen move and a king walk", async () => {
-    const { fetcher, calls } = fakeFetch(() => respond(answer("d1h5")));
+  it("says when a move sets a threat up for the next move", async () => {
+    const { fetcher, calls } = fakeFetch(() => respond(answer("f1c4")));
+    await jevAdapter("k", { fetch: fetcher, rng: () => 0 })(requestFor(["e4", "e5"]));
+    const { a } = questionsOf(calls[0].body);
+    expect(a.criteria.f1c4).toContain("sets up a checkmate threat");
+    expect((a.instructions as { guidance: string }).guidance).toContain("sets up a threat for the next move");
+    expect(a.criteria.d1h5).toBeUndefined();
+  });
+
+  it("does not offer an early queen or a king walk when a developing move exists", async () => {
+    const { fetcher, calls } = fakeFetch(() => respond(answer("g1f3")));
     await jevAdapter("k", { fetch: fetcher })(requestFor(["e4", "e5"]));
-    const { criteria } = questionsOf(calls[0].body).a;
-    expect(criteria.d1h5).toBe("Queen from d1 to h5, brings the queen out early");
-    expect(criteria.e1e2).toBe("King from e1 to e2, moves the king off its home square");
+    const offered = Object.keys(questionsOf(calls[0].body).a.criteria);
+    expect(offered).not.toContain("d1h5");
+    expect(offered).not.toContain("e1e2");
+    expect(offered.length).toBeLessThanOrEqual(6);
+  });
+
+  it("varies between moves the two orderings rate about the same", async () => {
+    const close = (flip: number) =>
+      jevAdapter("k", { fetch: fakeFetch(() => respond(
+        answer("e2e4", { e2e4: 0.5, d2d4: 0.48 }),
+        answer("d2d4", { d2d4: 0.46, e2e4: 0.4 }),
+      )).fetcher, rng: () => flip })(requestFor());
+    // 0.94 against 0.90 is too close to always play one of them.
+    expect(await close(0)).toEqual({ kind: "move", san: "d4" });
+    expect(await close(0.99)).toEqual({ kind: "move", san: "e4" });
   });
 
   it("plays the move with the most support across both orderings", async () => {
@@ -143,6 +167,14 @@ describe("jevAdapter", () => {
   it("plays checkmate in one without asking", async () => {
     const { fetcher, calls } = fakeFetch(() => respond(answer("a7a6")));
     expect(await jevAdapter("k", { fetch: fetcher })(requestFor(MATE_IN_ONE))).toEqual({ kind: "move", san: "Qh4#" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("plays a mate it can force in two without asking", async () => {
+    // Legal's mate, after black has taken the queen: Bxf7+ leaves only Ke7, and Nd5 mates.
+    const queenTaken = ["e4", "e5", "Nf3", "d6", "Bc4", "Bg4", "Nc3", "g6", "Nxe5", "Bxd1"];
+    const { fetcher, calls } = fakeFetch(() => respond(answer("c3d1")));
+    expect(await jevAdapter("k", { fetch: fetcher })(requestFor(queenTaken))).toEqual({ kind: "move", san: "Bxf7+" });
     expect(calls).toHaveLength(0);
   });
 

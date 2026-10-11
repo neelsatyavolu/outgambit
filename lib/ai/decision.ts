@@ -1,17 +1,20 @@
 import { describeMove, textBoard } from "../chess/describe";
 import type { LegalMove } from "../chess/rules";
-import { NOTE, WINNING_LEAD, survey, type Phase } from "../chess/notes";
+import { focusMoves, NOTE, WINNING_LEAD, survey, type Phase, type Survey } from "../chess/notes";
 import { assessMoves, shortlist } from "../chess/tactics";
 import { numberedMoves } from "./prompt";
 import { errorName, providerError } from "./result";
 import type { Adapter, MoveRequest } from "./types";
 
 /**
- * Decision models (Jev, OpenAI Decisions, the ones on Vercel AI Gateway)
+ * Decision models (Jev, Mercury Decide, OpenAI Decisions, the ones on Vercel AI Gateway)
  * do not write a move: they pick one option from a list, in a fraction of a
  * second. They also cannot calculate. So code does the calculating first
- * (checkmate in one, pieces left hanging, free captures) and the model
- * chooses among the moves that survive. This file is that shared method;
+ * (a checkmate it can force within three moves, pieces left hanging, a
+ * draw, a king hunt, a mate or a fork the move prepares)
+ * and the model chooses among the moves that survive. The list is kept
+ * short, which is both faster and less repetitive. This file is that shared
+ * method;
  * each provider only supplies how to send the question.
  */
 export type DecisionOption = { key: string; description: string };
@@ -46,9 +49,13 @@ export type Decider = (query: DecisionQuery) => Promise<{ answers: DecisionAnswe
 /** More input tokens than one question about one position could take: a count above this is a mistake, not a bill. */
 const MOST_TOKENS = 1_000_000;
 
-/** The input tokens a decision response says it used, as a whole number. Undefined if it does not say, or says nonsense. */
+/**
+ * The input tokens a decision response says it used, as a whole number. Undefined if it does not say, or says
+ * nonsense. TypeSafe and OpenAI spell the count `input_tokens`; AI Gateway spells it `inputTokens`.
+ */
 export function billedTokens(usage: unknown): number | undefined {
-  const tokens = (usage as { input_tokens?: unknown } | null | undefined)?.input_tokens;
+  const said = usage as { input_tokens?: unknown; inputTokens?: unknown } | null | undefined;
+  const tokens = said?.input_tokens ?? said?.inputTokens;
   return typeof tokens === "number" && tokens >= 0 && tokens <= MOST_TOKENS ? Math.round(tokens) : undefined;
 }
 
@@ -72,6 +79,7 @@ export const INSTRUCTIONS = {
 };
 
 const TACTICS = "Prefer an option that threatens checkmate, forks two pieces, or attacks a piece.";
+const PLANS = "Prefer an option that sets up a threat for the next move.";
 const ADVICE: Record<Phase, string> = {
   opening:
     "This is the opening: otherwise develop knights and bishops, claim the centre with pawns and castle early. Do " +
@@ -101,6 +109,7 @@ export function instructionsFor(phase: Phase, lead = 0, noted: readonly string[]
   const trades = said(NOTE.trade) && lead !== 0 ? (lead > 0 ? TRADE_AHEAD : TRADE_BEHIND) : null;
   const advice = [
     TACTICS,
+    noted.some((note) => note.startsWith("sets up ")) ? PLANS : null,
     ADVICE[phase],
     lead >= WINNING_LEAD ? WINNING : null,
     said(NOTE.draws) ? DRAWS : null,
@@ -165,23 +174,39 @@ function option(move: LegalMove, notes: readonly string[] = []): DecisionOption 
   return { key: move.uci, description: [describeMove(move), ...notes].join(", ") };
 }
 
-/** The option with the most combined support, or the stated choice when no probabilities came back. */
-function strongest(answers: readonly DecisionAnswer[]): string | null {
+/**
+ * One ordering has to lead by this much before its favorite is played
+ * outright. Closer than that, the probabilities pick, so two games from the
+ * same quiet position do not always play the same move.
+ */
+const CLEAR_LEAD = 1.35;
+
+/** The move the two orderings support, or the stated choice when no probabilities came back. */
+function chooseMove(answers: readonly DecisionAnswer[], rng: () => number): string | null {
   const totals = new Map<string, number>();
   for (const answer of answers) {
     for (const [key, p] of Object.entries(answer.probabilities)) totals.set(key, (totals.get(key) ?? 0) + p);
   }
-  const best = [...totals.entries()].reduce<[string, number] | null>((top, e) => (top && top[1] >= e[1] ? top : e), null);
-  if (best && best[1] > 0) return best[0];
-  return answers.find((a) => a.choice !== null)?.choice ?? null;
+  const ranked = [...totals.entries()].filter((entry) => entry[1] > 0).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  if (ranked.length === 0) return answers.find((a) => a.choice !== null)?.choice ?? null;
+  const [top, second] = ranked;
+  if (!second || top[1] >= second[1] * CLEAR_LEAD) return top[0];
+  const band = ranked.filter((entry) => entry[1] * CLEAR_LEAD >= top[1]);
+  const weight = band.reduce((sum, entry) => sum + entry[1], 0);
+  let roll = rng() * weight;
+  for (const [key, p] of band) {
+    roll -= p;
+    if (roll <= 0) return key;
+  }
+  return top[0];
 }
 
 // These models lean toward the first option listed, so the same question is
 // asked twice in one request with the options in opposite orders, and the
 // two sets of probabilities are added together.
-function buildQuery(request: MoveRequest, moves: readonly LegalMove[], rng: () => number, notes: boolean): DecisionQuery {
-  const view = survey(request.history, notes ? moves.map((m) => m.uci) : []);
-  const first = shuffled(moves, rng).map((m) => option(m, view.notes.get(m.uci)));
+function buildQuery(request: MoveRequest, moves: readonly LegalMove[], rng: () => number, view: Survey, notes: boolean): DecisionQuery {
+  const said = notes ? moves.flatMap((m) => view.notes.get(m.uci) ?? []) : [];
+  const first = shuffled(moves, rng).map((m) => option(m, notes ? view.notes.get(m.uci) : undefined));
   return {
     model: request.model,
     state: {
@@ -192,7 +217,7 @@ function buildQuery(request: MoveRequest, moves: readonly LegalMove[], rng: () =
       position_fen: request.fen,
       last_moves: lastMoves(request.history),
     },
-    instructions: notes ? instructionsFor(view.phase, view.lead, [...view.notes.values()].flat()) : INSTRUCTIONS,
+    instructions: notes ? instructionsFor(view.phase, view.lead, said) : INSTRUCTIONS,
     orderings: [first, [...first].reverse()],
     signal: request.signal,
   };
@@ -202,14 +227,18 @@ function buildQuery(request: MoveRequest, moves: readonly LegalMove[], rng: () =
 export function decisionAdapter(decide: Decider, options: DecisionOptions = {}): Adapter {
   const rng = options.rng ?? Math.random;
   return async (request) => {
-    const moves = options.assist === false ? request.legalMoves : shortlist(assessMoves(request.history)).map((a) => a.move);
+    const assist = options.assist !== false;
+    const notes = options.notes !== false;
+    const tactical = assist ? shortlist(assessMoves(request.history)).map((a) => a.move) : request.legalMoves;
+    const view = survey(request.history, notes ? tactical.map((m) => m.uci) : []);
+    const moves = assist && notes ? focusMoves(view, tactical, rng) : tactical;
     // With one sound move there is nothing to ask.
-    if (options.assist !== false && moves.length === 1) return { kind: "move", san: moves[0].san };
+    if (assist && moves.length === 1) return { kind: "move", san: moves[0].san };
     try {
-      const outcome = await decide(buildQuery(request, moves, rng, options.notes !== false));
+      const outcome = await decide(buildQuery(request, moves, rng, view, notes));
       if ("error" in outcome) return providerError(outcome.error);
       const { inputTokens } = outcome;
-      const chosen = strongest(outcome.answers);
+      const chosen = chooseMove(outcome.answers, rng);
       if (chosen === null) return { ...providerError("bad response"), inputTokens };
       const move = moves.find((m) => m.uci === chosen);
       return move ? { kind: "move", san: move.san, inputTokens } : { kind: "invalid", raw: chosen, inputTokens };

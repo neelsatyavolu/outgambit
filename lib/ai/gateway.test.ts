@@ -25,6 +25,13 @@ describe("gatewayAdapter", () => {
     expect(Object.keys(b.criteria)).toEqual(Object.keys(a.criteria).reverse());
   });
 
+  it("reports the input tokens AI Gateway billed, which it spells in camel case", async () => {
+    const usage = { inputTokens: 44, outputTokens: 0 };
+    const { fetcher } = fakeFetch(() => json({ answers: { a: answer("g1f3"), b: answer("g1f3") }, usage }));
+    const result = await gatewayAdapter("k", { fetch: fetcher })(requestFor([], { model: "liquid/d1" }));
+    expect(result).toEqual({ kind: "move", san: "Nf3", inputTokens: 44 });
+  });
+
   it("maps a refused or rate-limited request to a provider error", async () => {
     for (const status of [403, 429]) {
       const { fetcher } = fakeFetch(() => json({ error: { message: "no" } }, status));

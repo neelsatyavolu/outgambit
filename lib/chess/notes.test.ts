@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { survey, surveyPosition } from "./notes";
+import { replay } from "./rules";
+import { focusMoves, survey, surveyPosition } from "./notes";
 
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const ITALIAN = ["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5"];
@@ -170,6 +171,42 @@ describe("what a move does toward finishing a won game", () => {
   });
 });
 
+describe("what a move sets up for the next move", () => {
+  it("says when developing the bishop makes a checkmate threat possible", () => {
+    // Bc4 makes Qh5, which was already legal, into a mate threat. Qh5 itself is still just an early queen.
+    expect(after(["e4", "e5"], "f1c4")).toEqual(["sets up a checkmate threat", "develops a piece"]);
+    expect(after(["e4", "e5"], "g1f3")).toEqual(["develops a piece"]);
+    expect(after(["e4", "e5"], "d1h5")).toEqual(["brings the queen out early"]);
+    expect(after(["e4", "e5"], "d1f3")).toEqual(["brings the queen out early"]);
+    expect(after(["e4", "e5"], "f1a6")).toEqual(["develops a piece"]);
+    expect(after(["e4", "e5"], "d2d4")).toEqual(["claims the centre"]);
+  });
+
+  it("says when a knight move makes a fork possible, and not when it only gets off a square", () => {
+    // Nf6 blocks the queen from taking on g5, so Ng5 can be followed by Nxf7.
+    expect(after(["e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6"], "f3g5")).toEqual([
+      "sets up a fork of the queen and the rook",
+      "moves a piece that is already developed",
+    ]);
+    // The knight on f3 is in the queen's way. Stepping off would let her through, and that is not a plan.
+    const italian = survey(["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5"]).notes;
+    expect([...italian.values()].some((notes) => notes.some((note) => note.includes("checkmate")))).toBe(false);
+  });
+
+  it("names the fork a safe knight move prepares", () => {
+    const fen = "8/8/2k1q3/8/8/8/6K1/6N1 w - - 0 1";
+    expect(at(fen, "g1f3")).toContain("sets up a fork of the king and the queen");
+    expect((at(fen, "g1h3") ?? []).some((note) => note.startsWith("sets up"))).toBe(false);
+  });
+
+  it("keeps the move that prepares the mate when the list is cut down", () => {
+    const opening = ["e4", "e5"];
+    const offered = focusMoves(survey(opening), replay(opening).legal, () => 0.999).map((m) => m.san);
+    expect(offered).toContain("Bc4");
+    expect(offered).not.toContain("Qh5");
+  });
+});
+
 describe("the position as a whole", () => {
   it("names the phase of the game", () => {
     expect(survey([]).phase).toBe("opening");
@@ -188,6 +225,21 @@ describe("the position as a whole", () => {
   it("notes only the moves it is asked about", () => {
     expect([...survey([], ["e2e4", "g1f3"]).notes.keys()].sort()).toEqual(["e2e4", "g1f3"]);
     expect(survey([]).notes.size).toBe(20);
+  });
+
+  it("keeps the useful opening moves and leaves out the ones that do nothing", () => {
+    const kept = focusMoves(survey([]), replay([]).legal, () => 0).map((m) => m.san);
+    expect(kept.sort()).toEqual(["Nc3", "Nf3", "d4", "e4"]);
+  });
+
+  it("always keeps a mate threat, and never an early queen that does not threaten one", () => {
+    const threat = ["e4", "e5", "Bc4", "Nc6"];
+    expect(focusMoves(survey(threat), replay(threat).legal, () => 0).some((m) => m.san === "Qh5")).toBe(true);
+    const opening = ["e4", "e5"];
+    const offered = focusMoves(survey(opening), replay(opening).legal, () => 0).map((m) => m.san);
+    expect(offered).not.toContain("Qh5");
+    expect(offered).not.toContain("Ke2");
+    expect(offered.length).toBeLessThanOrEqual(6);
   });
 
   it("keeps to the two most telling things about a move", () => {
