@@ -2,6 +2,7 @@ import "server-only";
 import { GEMINI_FREE_MODELS, freeModelRule, isFreeModel, openRouterFreeModels, type FreeModel } from "../ai/free-models";
 import { GATEWAY_CREDITS_URL } from "../ai/gateway";
 import { testJevKey } from "../ai/jev";
+import { testMercuryKey } from "../ai/mercury";
 import { testOpenAiKey } from "../ai/openai-decisions";
 import type { Db, Queryable } from "../db/client";
 import { listConnections } from "../db/connections";
@@ -27,6 +28,7 @@ export const CONNECTABLE: ReadonlyArray<{ provider: Provider; label: string; kin
   { provider: "gemini", label: "Gemini", kind: "key", note: "Free-tier models only. Slow games." },
   { provider: "openrouter", label: "OpenRouter", kind: "key", note: "Free models only. Slow games." },
   { provider: "jev", label: "Jev (TypeSafe)", kind: "key", note: "Fast. About $0.001 a game." },
+  { provider: "mercury", label: "Mercury Decide (Inception)", kind: "key", note: "Fast. About $0.001 a game." },
   { provider: "openai", label: "OpenAI Decisions", kind: "key", note: "Fast. About $0.003 a game, on an OpenAI API key." },
   { provider: "gateway", label: "Vercel AI Gateway", kind: "key", note: "Fast decision models. Needs paid gateway credits." },
 ];
@@ -60,6 +62,9 @@ export type TestResult = { ok: true } | { ok: false; error: string };
 async function checkKey(provider: Provider, apiKey: string, fetcher: typeof fetch): Promise<TestResult> {
   if (provider === "jev") {
     return (await testJevKey(apiKey, fetcher)) ? { ok: true } : { ok: false, error: "TypeSafe refused the key." };
+  }
+  if (provider === "mercury") {
+    return (await testMercuryKey(apiKey, fetcher)) ? { ok: true } : { ok: false, error: "Inception refused the key." };
   }
   if (provider === "openai") {
     return (await testOpenAiKey(apiKey, fetcher)) ? { ok: true } : { ok: false, error: "OpenAI refused the key." };

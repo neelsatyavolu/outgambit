@@ -27,6 +27,7 @@ export function budgetPool(provider: Provider, model: string): Pool | null {
     case "gemini":
       return { id: `${provider}/${model}`, kind: "requests" };
     case "jev":
+    case "mercury":
     case "openai":
     case "gateway":
       return { id: `${provider}/${model}`, kind: "cents" };

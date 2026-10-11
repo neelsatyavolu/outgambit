@@ -1,4 +1,4 @@
-export const PROVIDERS = ["codex", "grok", "gemini", "openrouter", "jev", "openai", "gateway", "fake"] as const;
+export const PROVIDERS = ["codex", "grok", "gemini", "openrouter", "jev", "mercury", "openai", "gateway", "fake"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 /** How hard a model thinks. High is only found on older games: it was too slow for a timed game, so it is no longer offered. */
 export type Effort = "low" | "medium" | "high";

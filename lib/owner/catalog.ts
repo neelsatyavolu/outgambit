@@ -3,6 +3,7 @@ import { bundledModels, loadModels, type ModelCatalog } from "@neelsatyavolu/sha
 import { isFreeModel } from "../ai/free-models";
 import { fakeEnabled } from "../ai/registry";
 import { JEV_MODEL } from "../ai/jev";
+import { MERCURY_MODEL } from "../ai/mercury";
 import { OPENAI_DECISIONS_MODEL } from "../ai/openai-decisions";
 import { timeControlsFor } from "../config";
 import type { Queryable } from "../db/client";
@@ -62,7 +63,8 @@ async function knownModels(loadCatalog: LoadCatalog): Promise<Known[]> {
     ...fromCatalog("codex"),
     ...fromCatalog("grok"),
     builtIn("jev", JEV_MODEL, "Jev", true),
-    // These bill per request to the owner's own account, so they also start off.
+    // These bill per request to the owner's own account, so they start off.
+    builtIn("mercury", MERCURY_MODEL, "Mercury Decide", false),
     builtIn("openai", OPENAI_DECISIONS_MODEL, "GPT-6 Luna (Decisions)", false),
     builtIn("gateway", "liquid/d1", "Liquid d1", false),
     builtIn("gateway", "microsoft/microsoft-decision-1", "Microsoft Decision-1", false),

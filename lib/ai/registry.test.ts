@@ -77,6 +77,15 @@ describe("getAdapter", () => {
     expect(calls[0].headers.authorization).toBe("Bearer ts-key");
   });
 
+  it("calls Mercury Decide with the Inception key", async () => {
+    await saveSecret(db, "mercury", { kind: "key", apiKey: "inc-key" }, NOW);
+    const { fetcher, calls } = fakeFetch(() => json({ answers: { a: { choice: "e2e4" } } }));
+    expect(await (await getAdapter(db, "mercury", NOW, fetcher))!(requestFor())).toEqual({ kind: "move", san: "e4" });
+    expect(calls[0].url).toBe("https://api.inceptionlabs.ai/v1/decisions");
+    expect(calls[0].headers.authorization).toBe("Bearer inc-key");
+    expect(calls[0].body.model).toBe("mercury-decide");
+  });
+
   it("calls OpenAI's Decisions endpoint with the OpenAI key", async () => {
     await saveSecret(db, "openai", { kind: "key", apiKey: "sk-key" }, NOW);
     const { fetcher, calls } = fakeFetch(() => json({ answers: [{ type: "choice", name: "a", choice: "e2e4", probabilities: [] }] }));

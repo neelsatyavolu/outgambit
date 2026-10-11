@@ -31,6 +31,7 @@ describe("connectionStatus", () => {
       ["gemini", "Gemini", "key", false, null],
       ["openrouter", "OpenRouter", "key", false, null],
       ["jev", "Jev (TypeSafe)", "key", true, NOW],
+      ["mercury", "Mercury Decide (Inception)", "key", false, null],
       ["openai", "OpenAI Decisions", "key", false, null],
       ["gateway", "Vercel AI Gateway", "key", false, null],
     ]);
@@ -89,6 +90,16 @@ describe("testConnection", () => {
     await saveSecret(db, "jev", { kind: "key", apiKey: "ts-key" }, NOW);
     const { fetcher } = fakeFetch(() => json({ answers: {} }));
     expect(await testConnection(db, "jev", NOW, fetcher)).toEqual({ ok: true });
+  });
+
+  it("checks an Inception key", async () => {
+    await saveSecret(db, "mercury", { kind: "key", apiKey: "inc-key" }, NOW);
+    const { fetcher, calls } = fakeFetch(() => json({ answers: {} }));
+    expect(await testConnection(db, "mercury", NOW, fetcher)).toEqual({ ok: true });
+    expect(calls[0].url).toBe("https://api.inceptionlabs.ai/v1/decisions");
+    expect(calls[0].headers.authorization).toBe("Bearer inc-key");
+    const refused = fakeFetch(() => json({}, 401));
+    expect(await testConnection(db, "mercury", NOW, refused.fetcher)).toEqual({ ok: false, error: "Inception refused the key." });
   });
 
   it("reports a key the provider refuses, without echoing its response", async () => {

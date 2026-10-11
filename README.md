@@ -27,14 +27,14 @@ if the site is not at `http://localhost:3000`, since reset links are built on it
 Open `/owner` and sign in with `OWNER_PASSWORD`.
 
 1. **Connections.** Sign in to ChatGPT and Grok (paste the callback address the
-   sign-in ends on), and paste API keys for Gemini, OpenRouter, TypeSafe, OpenAI
-   (for the Decisions API) and Vercel AI Gateway. Each row says what it costs.
+   sign-in ends on), and paste API keys for Gemini, OpenRouter, TypeSafe, Inception
+   (Mercury Decide), OpenAI (for the Decisions API) and Vercel AI Gateway. Each row says what it costs.
    "Test" checks each one.
 2. **Models.** Tick the models players may choose. ChatGPT and Grok models come
    from `shared-ai-auth` and start switched off. Gemini and OpenRouter models are
    added by ID or from the suggested list, and only free ones are accepted
    (OpenRouter `:free` variants; the Gemini list in `lib/ai/free-models.ts`).
-   Gemini is free only while the key's Google project has no billing set up. Jev appears once the TypeSafe key is saved.
+   Gemini is free only while the key's Google project has no billing set up. Jev appears once the TypeSafe key is saved. Mercury Decide appears once the Inception key is saved, and starts switched off.
 3. **Games.** Live games are listed first. Open one to watch it; finished games
    can be stepped through.
 
@@ -74,7 +74,7 @@ played is always finished. The figures are in `lib/config.ts` and the code in
   a day (1,000 once the account has bought credits), and a cautious 100 a day
   for each Gemini model, since Google only shows that number in AI Studio. A
   "too many requests" from either closes it for an hour.
-- **Jev, GPT-6 Luna Decisions and the AI Gateway models** are paid by the
+- **Jev, Mercury Decide, GPT-6 Luna Decisions and the AI Gateway models** are paid by the
   input token. Each may cost 10¢ a day, counted from the tokens its replies
   report.
 
@@ -87,7 +87,7 @@ count by the Pacific day and start again at midnight.
 
 LLMs get 20+20 and 45+30: a model's clock runs
 for the whole of each reply, and at anything quicker a slow reply loses it the
-game on time. Decision models (Jev, GPT-6 Luna Decisions and the ones on AI
+game on time. Decision models (Jev, Mercury Decide, GPT-6 Luna Decisions and the ones on AI
 Gateway) get 1+0 only. A model with effort levels plays at low or medium; high
 was too slow for a timed game and is no longer offered. Grok 4.7 and 4.6 play
 at low only, since medium took them a minute or more over a hard move
@@ -120,6 +120,7 @@ button calls the queue off. The rules are in `lib/chess/premove.ts`.
 | `pnpm test:e2e` | A browser plays a game against the scripted opponent |
 | `pnpm typecheck`, `pnpm lint` | Types and lint |
 | `JEV_BENCH=1 TYPESAFE_API_KEY=… pnpm smoke smoke/jev-strength.smoke.ts` | Plays Jev with and without the one-move tactics, and with and without being told what each move does, to compare. A few hundred Jev calls. |
+| `ENDGAME_BENCH=1 pnpm smoke smoke/endgames.smoke.ts --silent=false` | Plays won endgames out with a random pick from the shortlist in place of a model, to measure what code alone does to finish a game. No keys and no cost; a few minutes. |
 | `EFFORT_BENCH=1 pnpm smoke smoke/effort-timing.smoke.ts --silent=false` | Times every model that has effort levels, at each effort, and counts the tactics it finds. A dozen calls per model. |
 | `pnpm smoke smoke/usage.smoke.ts --silent=false` | Reads the ChatGPT and Grok meters and OpenRouter's free limit with the stored credentials, and prints them. Spends nothing. |
 | `pnpm smoke` | Asks every model you have enabled for a real move. Spends quota. Stop `pnpm dev` first when using the local database. |

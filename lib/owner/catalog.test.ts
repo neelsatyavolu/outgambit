@@ -48,6 +48,9 @@ describe("listForOwner", () => {
 
   it("lists the paid decision models as switched off until the owner enables them", async () => {
     const models = await listForOwner(db, loadCatalog);
+    expect(models.find((m) => m.provider === "mercury")).toMatchObject({
+      id: "mercury-decide", label: "Mercury Decide", supportsEffort: false, enabled: false, custom: false,
+    });
     expect(models.find((m) => m.provider === "openai")).toMatchObject({
       id: "gpt-6-luna", label: "GPT-6 Luna (Decisions)", supportsEffort: false, enabled: false, custom: false,
     });
