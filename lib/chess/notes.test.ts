@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Chess } from "chess.js";
 import { replay } from "./rules";
+import { assessMoves, shortlist } from "./tactics";
 import { focusMoves, survey, surveyPosition } from "./notes";
 
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -15,7 +16,7 @@ const at = (fen: string, uci: string) => surveyPosition(fen, 60).notes.get(uci);
 
 describe("what a move does in the opening", () => {
   it("says when it develops a piece or claims the centre, and nothing for a move that does neither", () => {
-    expect(after([], "g1f3")).toEqual(["develops a piece"]);
+    expect(after([], "g1f3")).toEqual(["develops a knight"]);
     expect(after([], "e2e4")).toEqual(["claims the centre"]);
     expect(after([], "a2a3")).toEqual([]);
   });
@@ -35,7 +36,7 @@ describe("what a move threatens", () => {
   it("says when it threatens checkmate next move", () => {
     // Qh5 eyes f7, which only the king defends and the bishop also attacks.
     expect(after(["e4", "e5", "Bc4", "Nc6"], "d1h5")).toEqual(["threatens checkmate next move", "brings the queen out early"]);
-    expect(after(["e4", "e5", "Bc4", "Nc6"], "g1f3")).toEqual(["develops a piece"]);
+    expect(after(["e4", "e5", "Bc4", "Nc6"], "g1f3")).toEqual(["develops a knight"]);
   });
 
   it("names a fork of two pieces worth more than the attacker", () => {
@@ -50,13 +51,13 @@ describe("what a move threatens", () => {
   });
 
   it("says when it attacks a piece worth more, or one nothing defends", () => {
-    expect(after(["e4", "d5", "exd5", "Qxd5"], "b1c3")).toEqual(["attacks the queen", "develops a piece"]);
+    expect(after(["e4", "d5", "exd5", "Qxd5"], "b1c3")).toEqual(["attacks the queen", "develops a knight"]);
     expect(at(ROOK_AGAINST_KNIGHT, "a1a4")?.[0]).toBe("attacks the undefended knight");
   });
 
   it("does not call it an attack when the piece is defended and worth no more", () => {
     // The knight on c6 is defended, and a bishop is worth the same.
-    expect(after(["e4", "e5", "Nf3", "Nc6"], "f1b5")).toEqual(["develops a piece"]);
+    expect(after(["e4", "e5", "Nf3", "Nc6"], "f1b5")).toEqual(["develops the bishop"]);
   });
 
   it("calls an equal capture that can be taken back an even trade", () => {
@@ -116,7 +117,7 @@ describe("what a quiet move does", () => {
   });
 
   it("leaves a developing move in the opening at that", () => {
-    expect(after(["e4", "e5", "Nf3", "Nc6"], "f1c4")).toEqual(["develops a piece"]);
+    expect(after(["e4", "e5", "Nf3", "Nc6"], "f1c4")).toEqual(["develops the bishop"]);
   });
 
   it("has something to say about most moves in a quiet position", () => {
@@ -129,7 +130,7 @@ describe("a move that goes back over old ground", () => {
   const SHUFFLE = ["Nf3", "Nf6", "Ng1", "Ng8"];
 
   it("says when it brings back a position the game has already had", () => {
-    expect(after(SHUFFLE, "g1f3")).toEqual(["repeats an earlier position", "develops a piece"]);
+    expect(after(SHUFFLE, "g1f3")).toEqual(["repeats an earlier position", "develops a knight"]);
     expect(after(SHUFFLE, "e2e4")).toEqual(["claims the centre"]);
   });
 
@@ -175,11 +176,16 @@ describe("what a move does toward finishing a won game", () => {
 describe("what a move sets up for the next move", () => {
   it("says when developing the bishop makes a checkmate threat possible", () => {
     // Bc4 makes Qh5, which was already legal, into a mate threat. Qh5 itself is still just an early queen.
-    expect(after(["e4", "e5"], "f1c4")).toEqual(["sets up a checkmate threat", "develops a piece"]);
-    expect(after(["e4", "e5"], "g1f3")).toEqual(["develops a piece"]);
+    expect(after(["e4", "e5"], "f1c4")).toEqual(["sets up a checkmate threat", "develops the bishop"]);
+    expect(after(["e4", "e5"], "g1f3")).toEqual(["develops a knight"]);
     expect(after(["e4", "e5"], "d1h5")).toEqual(["brings the queen out early"]);
     expect(after(["e4", "e5"], "d1f3")).toEqual(["brings the queen out early"]);
-    expect(after(["e4", "e5"], "f1a6")).toEqual(["develops a piece"]);
+    expect(after(["e4", "e5"], "g1e2")).toEqual([]);
+    expect(after(["e4", "e5"], "f1e2")).toEqual([]);
+    expect(after(["e4", "e5"], "f1d3")).toEqual([]);
+    expect(after(["e4", "e5"], "f1a6")).toEqual([]);
+    // The long diagonal is a real development. Ne2 and Be2 stay silent.
+    expect(after(["d4", "Nf6", "c4", "e6", "Nf3", "b6", "Nc3"], "c8b7")).toEqual(["makes the bishop more active"]);
     expect(after(["e4", "e5"], "d2d4")).toEqual(["claims the centre"]);
   });
 
@@ -238,9 +244,37 @@ describe("the position as a whole", () => {
     expect(focusMoves(survey(threat), replay(threat).legal, () => 0).some((m) => m.san === "Qh5")).toBe(true);
     const opening = ["e4", "e5"];
     const offered = focusMoves(survey(opening), replay(opening).legal, () => 0).map((m) => m.san);
+    expect(offered).toContain("Nf3");
     expect(offered).not.toContain("Qh5");
     expect(offered).not.toContain("Ke2");
     expect(offered.length).toBeLessThanOrEqual(6);
+  });
+
+  it("offers the knight after 1. e4 e5 whichever way a tie is broken", () => {
+    const opening = ["e4", "e5"];
+    for (const random of [0, 0.999]) {
+      const offered = focusMoves(survey(opening), replay(opening).legal, () => random).map((m) => m.san);
+      expect(offered).toContain("Nf3");
+      expect(offered).toContain("Bc4");
+      expect(offered).not.toContain("Ne2");
+      expect(offered).not.toContain("Be2");
+    }
+  });
+
+  it("drops the pawn lunge that only chases the queen, and keeps the developing knight", () => {
+    const line = ["e4", "e5", "Qh5"];
+    const offered = focusMoves(survey(line), replay(line).legal, () => 0).map((m) => m.san);
+    expect(offered).toContain("Nc6");
+    expect(offered).not.toContain("g5");
+  });
+
+  it("steps the Ruy bishop back along the same diagonal", () => {
+    const ruy = ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6"];
+    expect(after(ruy, "b5a4")).toEqual(["keeps the attack on the knight"]);
+    expect(after(ruy, "b5c4")).toEqual(["moves a piece that is already developed"]);
+    const listed = shortlist(assessMoves(ruy)).map((row) => row.move);
+    const offered = focusMoves(survey(ruy, listed.map((move) => move.uci)), listed, () => 0).map((move) => move.san);
+    expect(offered).toEqual(["Ba4"]);
   });
 
   it.each([0, 0.999])("keeps every stronger score tier before sampling a tie with rng=%s", (random) => {

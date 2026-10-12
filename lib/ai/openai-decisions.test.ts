@@ -23,7 +23,7 @@ describe("openAiDecisionsAdapter", () => {
     expect([a.type, a.name, b.name]).toEqual(["choice", "a", "b"]);
     expect(a.choices.map((c) => c.value).sort()).toEqual(["b1c3", "d2d4", "e2e4", "g1f3"]);
     expect(b.choices.map((c) => c.value)).toEqual([...a.choices.map((c) => c.value)].reverse());
-    expect(a.choices.find((c) => c.value === "g1f3")?.description).toBe("Knight from g1 to f3, develops a piece");
+    expect(a.choices.find((c) => c.value === "g1f3")?.description).toBe("Knight from g1 to f3, develops a knight");
     expect(typeof a.instructions).toBe("string");
   });
 

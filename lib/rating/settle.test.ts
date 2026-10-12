@@ -24,7 +24,7 @@ async function player(): Promise<string> {
   return id;
 }
 
-// A finished game against Jev (seeded at 850 regular, 950 bullet).
+// A finished game against Jev (seeded at 1400 regular, 1500 bullet).
 const finished = (userId: string, overrides: Partial<Game> = {}): Game =>
   makeGame({
     playerId: accountPlayerId(userId), provider: "jev", model: "jev-latest", modelLabel: "Jev", effort: null,
@@ -46,7 +46,7 @@ describe("settleRatings", () => {
     expect(user!.ratings.bullet).toBe(1200);
     expect(user!.games).toEqual({ regular: 1, bullet: 0 });
     const jev = await modelRating("jev/jev-latest", "regular");
-    expect(jev!.rating).toBeLessThan(850);
+    expect(jev!.rating).toBeLessThan(1400);
     expect(jev!.games).toBe(1);
   });
 
@@ -57,7 +57,7 @@ describe("settleRatings", () => {
     await settleRatings(db);
     const saved = await getGame(db, game.id);
     expect(saved!.rated).toBe(true);
-    expect(saved!.rating).toMatchObject({ playerBefore: 1300, aiBefore: 850 });
+    expect(saved!.rating).toMatchObject({ playerBefore: 1300, aiBefore: 1400 });
     expect(saved!.rating!.playerAfter).toBe((await getUser(db, id))!.ratings.regular);
     expect(saved!.rating!.aiAfter).toBe((await modelRating("jev/jev-latest", "regular"))!.rating);
   });
@@ -69,7 +69,7 @@ describe("settleRatings", () => {
     const user = await getUser(db, id);
     expect(user!.ratings.regular).toBe(1300);
     expect(user!.ratings.bullet).toBeLessThan(1200);
-    expect((await modelRating("jev/jev-latest", "bullet"))!.rating).toBeGreaterThan(950);
+    expect((await modelRating("jev/jev-latest", "bullet"))!.rating).toBeGreaterThan(1500);
     expect(await modelRating("jev/jev-latest", "regular")).toBeUndefined();
   });
 
@@ -87,8 +87,8 @@ describe("settleRatings", () => {
     const id = await player();
     await insertGame(db, finished(id, { result: "draw", reason: "stalemate" }));
     await settleRatings(db);
-    // The player (1300) was the favourite against Jev (850), so a draw costs them.
-    expect((await getUser(db, id))!.ratings.regular).toBeLessThan(1300);
+    // The player (1300) is the underdog against Jev (1400), so a draw goes to them.
+    expect((await getUser(db, id))!.ratings.regular).toBeGreaterThan(1300);
   });
 
   it("rates each game once, however often and however concurrently it is asked", async () => {

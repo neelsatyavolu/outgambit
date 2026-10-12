@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameView } from "../game/types";
-import { FAST_POLL_MS, isStale, pollIntervalMs, shownFen, SLOW_POLL_MS } from "./sync";
+import { FAST_POLL_MS, isStale, pollIntervalMs, retryPremove, shownFen, SLOW_POLL_MS } from "./sync";
 
 const view = (moves: number, status: GameView["status"] = "active"): GameView =>
   ({
@@ -38,6 +38,15 @@ describe("pollIntervalMs", () => {
     expect(pollIntervalMs("1+0", false)).toBe(SLOW_POLL_MS);
     expect(pollIntervalMs("20+20", true)).toBe(SLOW_POLL_MS);
     expect(pollIntervalMs(undefined, true)).toBe(SLOW_POLL_MS);
+  });
+});
+
+describe("retryPremove", () => {
+  it("keeps a premove only when the turn has not moved on or the request never arrived", () => {
+    expect(retryPremove("It is not your turn.")).toBe(true);
+    expect(retryPremove("Could not reach the server. Check your connection.")).toBe(true);
+    expect(retryPremove("That move was already played.")).toBe(false);
+    expect(retryPremove("That move is not legal.")).toBe(false);
   });
 });
 

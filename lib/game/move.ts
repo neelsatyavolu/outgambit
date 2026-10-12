@@ -1,5 +1,6 @@
 import { chargeMove, remainingMs } from "../chess/clock";
 import { applyMove } from "../chess/rules";
+import { findTimeControl } from "../config";
 import type { Queryable } from "../db/client";
 import { commitMove, finishGame, getGame, getGameSnapshot } from "../db/games";
 import { startAiTurn } from "./ai-turn";
@@ -10,6 +11,9 @@ export type MoveError = "not_found" | "not_active" | "not_your_turn" | "stale" |
 export type MoveOutcome = { ok: true } | { ok: false; error: MoveError };
 
 const refuse = (error: MoveError): MoveOutcome => ({ ok: false, error });
+
+/** Half the reported round trip, and never more than this, given back on a bullet or blitz clock. */
+const LAG_REFUND_CAP_MS = 150;
 
 /**
  * Plays the player's move (UCI). `seenPly` is the ply the player was looking
@@ -22,6 +26,7 @@ export async function playerMove(
   move: string,
   seenPly: number,
   arrivedAt: number = deps.now(),
+  lagMs = 0,
 ): Promise<MoveOutcome> {
   let next: { game: Game; history: string[] } | undefined;
   const outcome = await deps.db.transaction(async (tx): Promise<MoveOutcome> => {
@@ -37,7 +42,8 @@ export async function playerMove(
     if (turnAt(game.ply) !== game.playerColor) return refuse("not_your_turn");
 
     const isWhite = game.playerColor === "white";
-    const charge = chargeMove(isWhite ? game.whiteMs : game.blackMs, game.turnStartedAt, arrivedAt, game.incrementMs);
+    const refund = findTimeControl(game.timeControl)?.fastOnly ? Math.min(LAG_REFUND_CAP_MS, Math.floor(Math.max(0, lagMs) / 2)) : 0;
+    const charge = chargeMove(isWhite ? game.whiteMs : game.blackMs, game.turnStartedAt, arrivedAt - refund, game.incrementMs);
     if (charge.flagged) {
       const ending = { status: "finished", result: opposite(game.playerColor), reason: "timeout" } as const;
       await finishGame(tx, game.id, ending, { expectedPly: game.ply, ...(isWhite ? { whiteMs: 0 } : { blackMs: 0 }) });

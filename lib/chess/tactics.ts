@@ -195,6 +195,216 @@ function checkingLoss(chess: Chess, replies: readonly string[], loss: number, bu
   return loss;
 }
 
+/** A full minor piece. A rook for a knight is two, and that is not treated as losing the move. */
+const LOOM_NET = 3;
+/** Quiet threats looked at across one position. An unfinished look is not a loss. */
+const LOOM_BUDGET = 160;
+/** Answers tried against one threat: take the attacker, or move the piece it attacks. */
+const LOOM_TRIES = 8;
+
+/** The board with the side to move swapped and en passant cleared, as if the mover passed. */
+function passedLoss(chess: Chess): number {
+  const fen = chess.fen().split(" ");
+  fen[1] = fen[1] === "w" ? "b" : "w";
+  fen[3] = "-";
+  try {
+    const passed = new Chess(fen.join(" "));
+    return worstLoss(passed, passed.moves());
+  } catch {
+    return 0;
+  }
+}
+
+const KNIGHT_STEPS: readonly [number, number][] = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
+const BISHOP_RAYS: readonly [number, number][] = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+const ROOK_RAYS: readonly [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const QUEEN_RAYS: readonly [number, number][] = [...BISHOP_RAYS, ...ROOK_RAYS];
+
+/**
+ * Squares `type` on `to` would attack. `vacant` is the square it leaves, which no longer blocks a ray.
+ * The piece is not moved: this only reads the board.
+ */
+function attackedSquares(chess: Chess, to: Square, type: string, color: Side, vacant: Square): Square[] {
+  const file = fileOf(to);
+  const rank = rankOf(to);
+  const out: Square[] = [];
+  if (type === "n") {
+    for (const [df, dr] of KNIGHT_STEPS) {
+      const f = file + df;
+      const r = rank + dr;
+      if (f >= 0 && f <= 7 && r >= 1 && r <= 8) out.push(squareAt(f, r));
+    }
+    return out;
+  }
+  if (type === "p") {
+    const next = rank + (color === "w" ? 1 : -1);
+    if (next < 1 || next > 8) return out;
+    if (file > 0) out.push(squareAt(file - 1, next));
+    if (file < 7) out.push(squareAt(file + 1, next));
+    return out;
+  }
+  const rays = type === "b" ? BISHOP_RAYS : type === "r" ? ROOK_RAYS : QUEEN_RAYS;
+  for (const [df, dr] of rays) {
+    let f = file + df;
+    let r = rank + dr;
+    while (f >= 0 && f <= 7 && r >= 1 && r <= 8) {
+      const square = squareAt(f, r);
+      out.push(square);
+      if (square !== vacant && chess.get(square)) break;
+      f += df;
+      r += dr;
+    }
+  }
+  return out;
+}
+
+/** How many pieces a quiet move to `to` would win, and the dearest of them. */
+function winningTargets(chess: Chess, to: Square, type: string, color: Side, vacant: Square): { targets: number; value: number } {
+  if (type === "k") return { targets: 0, value: 0 };
+  const worth = VALUES[type];
+  let targets = 0;
+  let value = 0;
+  for (const square of attackedSquares(chess, to, type, color, vacant)) {
+    const piece = chess.get(square);
+    if (!piece || piece.color === color || piece.type === "k" || VALUES[piece.type] < LOOM_NET) continue;
+    // A piece their own side still defends is not won when it is no dearer than the attacker.
+    if (VALUES[piece.type] <= worth && chess.isAttacked(square, piece.color)) continue;
+    targets += 1;
+    value = Math.max(value, VALUES[piece.type]);
+    if (targets >= 2) return { targets, value };
+  }
+  return { targets, value };
+}
+
+/** Quiet replies that attack a piece, forks first. At most three, so the search stays short. */
+function quietThreats(chess: Chess, san: string): string[] {
+  chess.move(san);
+  const found: { san: string; targets: number; value: number }[] = [];
+  try {
+    for (const reply of chess.moves({ verbose: true })) {
+      if (reply.captured || reply.piece === "k" || reply.san.endsWith("+") || reply.san.endsWith("#")) continue;
+      const hit = winningTargets(chess, reply.to, reply.piece, reply.color, reply.from);
+      if (hit.targets > 0) found.push({ san: reply.san, ...hit });
+    }
+  } finally {
+    chess.undo();
+  }
+  found.sort((a, b) => b.targets - a.targets || b.value - a.value);
+  const forks = found.filter((threat) => threat.targets >= 2);
+  const single = found.find((threat) => threat.targets === 1);
+  return [...forks, ...(single ? [single] : [])].slice(0, 3).map((threat) => threat.san);
+}
+
+/**
+ * Material still lost after answering `threat`, or null when the budget ran
+ * out first. Meeting it means the loss falls below a minor piece.
+ */
+function answeredLoss(chess: Chess, threat: Move, net: number, budget: { left: number }): number | null {
+  const attacked = new Set<Square>();
+  for (const row of chess.board()) {
+    for (const piece of row) {
+      if (!piece || piece.color !== chess.turn() || piece.type === "k" || VALUES[piece.type] < LOOM_NET) continue;
+      if (chess.attackers(piece.square, threat.color).includes(threat.to)) attacked.add(piece.square);
+    }
+  }
+  const evasions = chess
+    .moves({ verbose: true })
+    .filter((move) => move.to === threat.to || attacked.has(move.from))
+    .sort((a, b) => Number(b.to === threat.to) - Number(a.to === threat.to))
+    .slice(0, LOOM_TRIES);
+  let best = net;
+  for (const evasion of evasions) {
+    if (budget.left <= 0) return null;
+    budget.left -= 1;
+    chess.move(evasion);
+    best = Math.min(best, passedLoss(chess));
+    chess.undo();
+    if (best < LOOM_NET) return best;
+  }
+  return best;
+}
+
+/**
+ * A single attack the attacked piece can step off, without being the only
+ * defender of something else. A fork, a pin, or a trapped piece still has to be priced.
+ */
+function stepsOff(chess: Chess, threat: Move): boolean {
+  const cover = attackedSquares(chess, threat.to, threat.piece, threat.color, threat.from);
+  const worth = VALUES[threat.piece];
+  const victims: Square[] = [];
+  for (const square of cover) {
+    const piece = chess.get(square);
+    if (!piece || piece.color === threat.color || piece.type === "k" || VALUES[piece.type] < LOOM_NET) continue;
+    if (VALUES[piece.type] <= worth && chess.isAttacked(square, piece.color)) continue;
+    victims.push(square);
+    if (victims.length >= 2) return false;
+  }
+  const victim = victims[0];
+  if (!victim) return true;
+  const hit = new Set(cover);
+  const flights = chess.moves({ square: victim, verbose: true });
+  if (!flights.some((move) => move.to === threat.to || !hit.has(move.to))) return false;
+  const guard = chess.get(victim)!;
+  for (const square of attackedSquares(chess, victim, guard.type, guard.color, victim)) {
+    const otherPiece = chess.get(square);
+    if (!otherPiece || otherPiece.color !== guard.color || VALUES[otherPiece.type] < LOOM_NET) continue;
+    const friends = chess.attackers(square, guard.color);
+    if (friends.length === 1 && friends[0] === victim && chess.isAttacked(square, threat.color)) return false;
+  }
+  return true;
+}
+
+/** What `reply` still wins after the mover answers it. Null when the budget runs out first. */
+function pricedThreat(chess: Chess, replySan: string, budget: { left: number }): number | null {
+  const reply = chess.move(replySan);
+  try {
+    if (stepsOff(chess, reply)) return 0;
+    if (budget.left <= 0) return null;
+    budget.left -= 1;
+    const net = passedLoss(chess);
+    if (net < LOOM_NET) return 0;
+    return answeredLoss(chess, reply, net, budget);
+  } finally {
+    chess.undo();
+  }
+}
+
+/**
+ * Marks a move that lets the opponent win a piece by a quiet move, when
+ * another move at the same material does not. Only those tied moves are
+ * searched. The expensive check runs on one threat per move, and an
+ * unfinished look is not a loss.
+ */
+function loom(chess: Chess, rows: Assessed[]): void {
+  if (rows.some((row) => row.mate || row.forcesMate)) return;
+  const safe = rows.filter((row) => !row.allowsMate);
+  if (safe.length === 0) return;
+  const best = Math.max(...safe.map((row) => row.score));
+  const pool = safe.filter((row) => row.score === best);
+  if (pool.length < 2) return;
+  const threats = pool.map((row) => ({ row, replies: quietThreats(chess, row.move.san) }));
+  const budget = { left: LOOM_BUDGET };
+  for (const { row, replies } of threats) {
+    if (replies.length === 0) continue;
+    chess.move(row.move.san);
+    let extra = 0;
+    for (const reply of replies) {
+      const left = pricedThreat(chess, reply, budget);
+      if (left === null) {
+        chess.undo();
+        return;
+      }
+      extra = Math.max(extra, left);
+      if (extra >= LOOM_NET) break;
+    }
+    chess.undo();
+    if (extra >= LOOM_NET) {
+      row.loss += extra;
+      row.score = row.gain - row.loss;
+    }
+  }
+}
+
 /** What makes two positions the same for repetition: the pieces, whose move it is, and the castling and en passant rights. */
 const positionKey = (chess: Chess): string => chess.fen().split(" ").slice(0, 4).join(" ");
 
@@ -211,7 +421,7 @@ function assessChess(chess: Chess, seen: ReadonlySet<string>): Assessed[] {
   const enemyKing = kingAt(chess, other(side));
   const gapBefore = ourKing && enemyKing ? kingSteps(ourKing, enemyKing) : 0;
   const forkBudget = { left: 32 };
-  return chess.moves({ verbose: true }).map((m) => {
+  const rows = chess.moves({ verbose: true }).map((m) => {
     chess.move(m.san);
     const mate = chess.isCheckmate();
     const draw = !mate && chess.isDraw();
@@ -236,6 +446,8 @@ function assessChess(chess: Chess, seen: ReadonlySet<string>): Assessed[] {
       flight, box, closer, lead, hunt,
     };
   });
+  loom(chess, rows);
+  return rows;
 }
 
 /** Assesses every legal move in the position reached by `history`, played from the start or from `fen`. */

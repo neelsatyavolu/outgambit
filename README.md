@@ -133,7 +133,9 @@ button calls the queue off. The rules are in `lib/chess/premove.ts`.
 | `pnpm typecheck`, `pnpm lint` | Types and lint |
 | `JEV_BENCH=1 TYPESAFE_API_KEY=… pnpm smoke smoke/jev-strength.smoke.ts` | Plays Jev with and without the one-move tactics, and with and without being told what each move does, to compare. A few hundred Jev calls. |
 | `ENDGAME_BENCH=1 pnpm smoke smoke/endgames.smoke.ts --silent=false` | Plays won endgames out with a random pick from the shortlist in place of a model, to measure what code alone does to finish a game. No keys and no cost; a few minutes. |
+| `ELO_BENCH=1 pnpm smoke smoke/elo.smoke.ts --silent=false` | Plays the move the notes prefer against a random sound move, and that sound move against a random legal move. Prints the Elo gap. No keys and no cost. `ELO_BENCH_GAMES` sets the games in each match (default 12). |
 | `EFFORT_BENCH=1 pnpm smoke smoke/effort-timing.smoke.ts --silent=false` | Times every model that has effort levels, at each effort, and counts the tactics it finds. A dozen calls per model. |
+| `DECISION_BENCH=1 pnpm smoke smoke/decision-cost.smoke.ts --silent=false` | Asks each connected decision model (Jev, Mercury Decide, SubQ Snap, GPT-6 Luna, Liquid d1, Microsoft Decision-1) for four opening moves the notes do not already settle. Prints hits, time, tokens, and cents. A few calls per model. |
 | `pnpm smoke smoke/usage.smoke.ts --silent=false` | Reads the ChatGPT and Grok meters and OpenRouter's free limit with the stored credentials, and prints them. Spends nothing. |
 | `pnpm smoke` | Asks every model you have enabled for a real move. Spends quota. Stop `pnpm dev` first when using the local database. |
 

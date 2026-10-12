@@ -10,6 +10,7 @@ export const maxDuration = 300;
 const schema = z.object({
   move: z.string().regex(/^[a-h][1-8][a-h][1-8][qrbn]?$/),
   ply: z.number().int().min(0),
+  lagMs: z.number().min(0).max(10_000).optional(),
 });
 
 const REFUSALS: Record<MoveError, { message: string; status: number }> = {
@@ -33,7 +34,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const outcome = await playerMove(deps, id, async (tx) => {
     player = await playerId({ create: false }, tx);
     return player;
-  }, body.move, body.ply, arrivedAt);
+  }, body.move, body.ply, arrivedAt, body.lagMs ?? 0);
   if (!outcome.ok) return fail(REFUSALS[outcome.error].message, REFUSALS[outcome.error].status);
   // Return the new state, which for a fast opponent already holds its reply.
   const view = await getGameView(deps, id, { playerId: player, owner: false }, receivedAt);

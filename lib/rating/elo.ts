@@ -40,6 +40,37 @@ export function startingRatings(skill: Skill): Record<Pool, number> {
 /** The share of points `a` is expected to take from `b`. */
 export const expectedScore = (a: number, b: number): number => 1 / (1 + 10 ** ((b - a) / 400));
 
+export type MatchElo = {
+  /** Elo points the scored side is ahead of the opponent. Negative when it scored under half. */
+  diff: number;
+  /** Half-width of a rough 95% interval. Zero when `bound` is set. */
+  margin: number;
+  /** One side took every point, so `diff` is a bound, not a midpoint. */
+  bound: boolean;
+};
+
+/** Elo points separating a player who scores `p` from an equal opponent. */
+const eloOf = (p: number): number => -400 * Math.log10(1 / p - 1);
+
+/**
+ * Elo points a score of `points` (a draw is half) out of `games` is worth
+ * against the opponent. When every game went the same way the midpoint is
+ * infinite, and `diff` is the result that still holds after allowing three
+ * upsets in that many games.
+ */
+export function matchElo(points: number, games: number): MatchElo {
+  if (games <= 0) return { diff: 0, margin: 0, bound: false };
+  const p = Math.min(1, Math.max(0, points / games));
+  if (p <= 0 || p >= 1) {
+    const held = Math.min(0.999, Math.max(0.001, 1 - 3 / games));
+    const magnitude = Math.round(eloOf(held));
+    return { diff: p >= 1 ? magnitude : -magnitude, margin: 0, bound: true };
+  }
+  const se = Math.sqrt((p * (1 - p)) / games);
+  const slope = 400 / (Math.LN10 * p * (1 - p));
+  return { diff: Math.round(eloOf(p)) || 0, margin: Math.round(1.96 * se * slope), bound: false };
+}
+
 // A player's first games move their rating quickly, because it starts as their own guess.
 const PLAYER_PROVISIONAL_GAMES = 10;
 const PLAYER_K = { provisional: 40, settled: 24 };

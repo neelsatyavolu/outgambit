@@ -1,4 +1,4 @@
-import type { GameView } from "../game/types";
+import type { Color, GameView } from "../game/types";
 
 export type ClockSync = { offsetMs: number; networkMs: number };
 
@@ -16,6 +16,21 @@ export function syncClock(
   // mean the old mapping no longer fits, for example after device suspension.
   const compatible = previous && Math.abs(previous.offsetMs - sample.offsetMs) <= (previous.networkMs + networkMs) / 2 + 1;
   return compatible && previous.networkMs <= networkMs ? previous : sample;
+}
+
+/**
+ * Clocks for the moment a move is sent. The side that just moved is frozen at
+ * the time it has left, and the other side starts running from `now`.
+ */
+export function handClock(
+  view: Pick<GameView, "status" | "turn" | "whiteMs" | "blackMs">,
+  at: number,
+  now: number,
+): { whiteMs: number; blackMs: number; at: number; turn: Color } {
+  const spent = view.status === "active" ? Math.max(0, now - at) : 0;
+  const whiteMs = view.turn === "white" ? Math.max(0, view.whiteMs - spent) : view.whiteMs;
+  const blackMs = view.turn === "black" ? Math.max(0, view.blackMs - spent) : view.blackMs;
+  return { whiteMs, blackMs, at: now, turn: view.turn === "white" ? "black" : "white" };
 }
 
 /** Only timestamps determine elapsed time; delayed frames never accumulate clock drift. */

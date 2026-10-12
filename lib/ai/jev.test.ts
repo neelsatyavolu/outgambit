@@ -40,7 +40,7 @@ describe("jevAdapter", () => {
     const { fetcher, calls } = fakeFetch(() => respond(answer("g1f3")));
     await jevAdapter("k", { fetch: fetcher })(requestFor());
     const { criteria } = questionsOf(calls[0].body).a;
-    expect(criteria.g1f3).toBe("Knight from g1 to f3, develops a piece");
+    expect(criteria.g1f3).toBe("Knight from g1 to f3, develops a knight");
     expect(criteria.e2e4).toBe("Pawn from e2 to e4, claims the centre");
     expect(criteria.a2a3).toBeUndefined();
   });
@@ -49,9 +49,9 @@ describe("jevAdapter", () => {
     const { fetcher, calls } = fakeFetch(() => respond(answer("e7e5")));
     await jevAdapter("k", { fetch: fetcher })(requestFor(["e4"]));
     expect(calls[0].body.state).toMatchObject({ phase: "opening", material: "level" });
-    // White has taken a queen for nothing.
-    await jevAdapter("k", { fetch: fetcher })(requestFor([...FREE_QUEEN, "Nxh4"]));
-    expect(calls[1].body.state).toMatchObject({ side_to_move: "black", material: "white is ahead by 9 (pawn 1, knight or bishop 3, rook 5, queen 9)" });
+    // White has taken a queen for nothing. Black's knight move leaves no forcing reply, so the model is still asked.
+    await jevAdapter("k", { fetch: fetcher })(requestFor([...FREE_QUEEN, "Nxh4", "Nc6"]));
+    expect(calls[1].body.state).toMatchObject({ side_to_move: "white", material: "white is ahead by 9 (pawn 1, knight or bishop 3, rook 5, queen 9)" });
   });
 
   it("gives advice that fits the phase", async () => {
@@ -91,11 +91,44 @@ describe("jevAdapter", () => {
     expect((calls[0].body.state as { last_moves: string }).last_moves).toBe("... 2. Ng1 Ng8 3. Nf3 Nf6 4. Ng1 Ng8 5. Nf3 Nf6 6. Ng1 Ng8 7. e4");
   });
 
-  it("says what a move threatens, ahead of what it does for the position", async () => {
+  it("says what a move threatens when the threat is real", async () => {
     const { fetcher, calls } = fakeFetch(() => respond(answer("d1h5")));
     await jevAdapter("k", { fetch: fetcher })(requestFor(["e4", "e5", "Bc4", "Nc6"]));
-    const { criteria } = questionsOf(calls[0].body).a;
-    expect(criteria.d1h5).toBe("Queen from d1 to h5, threatens checkmate next move, brings the queen out early");
+    expect(calls).toHaveLength(1);
+    expect(questionsOf(calls[0].body).a.criteria.d1h5).toBe("Queen from d1 to h5, threatens checkmate next move, brings the queen out early");
+  });
+
+  it("plays a mate threat without asking when it leads the other moves", async () => {
+    // Fried liver. Qh5 threatens mate and Qf3 does not, so nothing is asked.
+    const fried = ["e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "Ng5", "d5", "exd5", "Nxd5"];
+    const { fetcher, calls } = fakeFetch(() => respond(answer("d1h5")));
+    const played = await jevAdapter("k", { fetch: fetcher })(requestFor(fried));
+    expect(calls).toHaveLength(0);
+    expect(played).toEqual({ kind: "move", san: "Qh5" });
+  });
+
+  it("still asks about a mate threat when the notes are turned off", async () => {
+    const { fetcher, calls } = fakeFetch(() => respond(answer("d1h5")));
+    await jevAdapter("k", { fetch: fetcher, notes: false })(requestFor(["e4", "e5", "Bc4", "Nc6"]));
+    expect(calls).toHaveLength(1);
+    expect(questionsOf(calls[0].body).a.criteria.d1h5).toBe("Queen from d1 to h5");
+  });
+
+  it("plays at once when the clock is too short to wait for an answer", async () => {
+    const hurried = (flip: number) => {
+      const { fetcher, calls } = fakeFetch(() => respond(answer("g1f3")));
+      const played = jevAdapter("k", { fetch: fetcher, rng: () => flip })(requestFor([], { remainingMs: 3_500 }));
+      return played.then((move) => ({ move, calls }));
+    };
+    const first = await hurried(0);
+    const last = await hurried(0.999);
+    expect(first.calls).toHaveLength(0);
+    expect(last.calls).toHaveLength(0);
+    expect(first.move.kind).toBe("move");
+    expect(first.move).not.toEqual(last.move);
+    const asked = fakeFetch(() => respond(answer("g1f3")));
+    await jevAdapter("k", { fetch: asked.fetcher })(requestFor([], { remainingMs: 3_501 }));
+    expect(asked.calls).toHaveLength(1);
   });
 
   it("can leave the notes out, for measuring what they add", async () => {

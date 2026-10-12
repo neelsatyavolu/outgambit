@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LEVELS, expectedScore, poolOf, rate, startingRatings } from "./elo";
+import { LEVELS, expectedScore, matchElo, poolOf, rate, startingRatings } from "./elo";
 
 describe("poolOf", () => {
   it("puts the quick time controls in the bullet pool and the rest in regular", () => {
@@ -32,6 +32,23 @@ describe("expectedScore", () => {
     expect(expectedScore(1500, 1500)).toBe(0.5);
     expect(expectedScore(1900, 1500)).toBeCloseTo(0.909, 3);
     expect(expectedScore(1500, 1900)).toBeCloseTo(0.091, 3);
+  });
+});
+
+describe("matchElo", () => {
+  it("is level at an even score, and about 191 ahead at three points in four", () => {
+    expect(matchElo(50, 100)).toEqual({ diff: 0, margin: 68, bound: false });
+    expect(matchElo(75, 100)).toEqual({ diff: 191, margin: 79, bound: false });
+    expect(matchElo(25, 100)).toEqual({ diff: -191, margin: 79, bound: false });
+  });
+
+  it("gives a bound when one side took every game", () => {
+    expect(matchElo(20, 20)).toEqual({ diff: 301, margin: 0, bound: true });
+    expect(matchElo(0, 20)).toEqual({ diff: -301, margin: 0, bound: true });
+  });
+
+  it("is nothing when no games were played", () => {
+    expect(matchElo(0, 0)).toEqual({ diff: 0, margin: 0, bound: false });
   });
 });
 

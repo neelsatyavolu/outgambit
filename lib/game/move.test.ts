@@ -134,6 +134,29 @@ describe("playerMove", () => {
     });
   });
 
+  it("gives back half the round trip on a bullet clock, up to 150ms", async () => {
+    const h = harness(db, ["e5"]);
+    const id = await start(h, { timeControl: "1+0" });
+    h.clock.now = NOON + 1_000;
+    expect(await playerMove(h.deps, id, "player-1", "e2e4", 0, h.clock.now, 200)).toEqual({ ok: true });
+    expect(await getGame(db, id)).toMatchObject({ whiteMs: 59_100 });
+  });
+
+  it("does not give the lag back on a slow clock", async () => {
+    const slow = harness(db, ["e5"]);
+    const slowId = await start(slow, { timeControl: "10+10" });
+    slow.clock.now = NOON + 1_000;
+    expect(await playerMove(slow.deps, slowId, "player-1", "e2e4", 0, slow.clock.now, 200)).toEqual({ ok: true });
+    expect(await getGame(db, slowId)).toMatchObject({ whiteMs: 609_000 });
+  });
+
+  it("still flags when the move arrives later than the refund can cover", async () => {
+    const h = harness(db);
+    const id = await start(h, { timeControl: "1+0" });
+    h.clock.now = NOON + 60_200;
+    expect(await playerMove(h.deps, id, "player-1", "e2e4", 0, h.clock.now, 1_000)).toEqual({ ok: false, error: "out_of_time" });
+  });
+
   it("flags a human move at the exact millisecond deadline", async () => {
     const h = harness(db);
     const id = await start(h, { timeControl: "1+0" });

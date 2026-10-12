@@ -17,8 +17,8 @@ beforeEach(() => resetDb(db));
 describe("modelBoard", () => {
   it("lists a fast model in both pools at its estimated rating", async () => {
     expect(await modelBoard(db, [JEV])).toEqual([
-      { provider: "jev", id: "jev-latest", label: "Jev", effort: null, pool: "bullet", rating: 950, games: 0 },
-      { provider: "jev", id: "jev-latest", label: "Jev", effort: null, pool: "regular", rating: 850, games: 0 },
+      { provider: "jev", id: "jev-latest", label: "Jev", effort: null, pool: "bullet", rating: 1500, games: 0 },
+      { provider: "jev", id: "jev-latest", label: "Jev", effort: null, pool: "regular", rating: 1400, games: 0 },
     ]);
   });
 

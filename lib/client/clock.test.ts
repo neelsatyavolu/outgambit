@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clockMs, syncClock } from "./clock";
+import { clockMs, handClock, syncClock } from "./clock";
 
 describe("syncClock", () => {
   it("subtracts server processing from the round trip before estimating transport", () => {
@@ -29,6 +29,19 @@ describe("syncClock", () => {
     // Equal round-trip latency must not preserve the old epoch-to-local mapping.
     const resumed = syncClock(first, { serverReceivedAt: 161_040, serverNow: 161_440 }, 2_000, 2_480);
     expect(clockMs(20_000, true, 161_440 - resumed.offsetMs, 2_480)).toBe(19_960);
+  });
+});
+
+describe("handClock", () => {
+  const view = { status: "active" as const, turn: "white" as const, whiteMs: 10_000, blackMs: 20_000 };
+
+  it("freezes the mover and starts the opponent from now", () => {
+    expect(handClock(view, 1_000, 1_500)).toEqual({ whiteMs: 9_500, blackMs: 20_000, at: 1_500, turn: "black" });
+  });
+
+  it("does not charge a clock that is not running", () => {
+    expect(handClock({ ...view, status: "finished" }, 1_000, 5_000)).toMatchObject({ whiteMs: 10_000, blackMs: 20_000 });
+    expect(handClock(view, 1_500, 1_200).whiteMs).toBe(10_000);
   });
 });
 

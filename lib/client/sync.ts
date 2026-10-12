@@ -28,6 +28,13 @@ export function pollIntervalMs(timeControl: string | undefined, opponentToMove: 
   return findTimeControl(timeControl ?? "")?.fastOnly ? FAST_POLL_MS : SLOW_POLL_MS;
 }
 
+const RETRYABLE = new Set(["It is not your turn.", "Could not reach the server. Check your connection."]);
+
+/** A queued premove stays queued after these: the turn has not moved on, or the request never arrived. */
+export function retryPremove(error: string): boolean {
+  return RETRYABLE.has(error);
+}
+
 /** The position to draw: the one after `shown` moves, or the live one. */
 export function shownFen(view: GameView, shown: number | null, startFen: string): string {
   if (shown === null || shown >= view.moves.length || shown < 0) return view.fen;

@@ -11,9 +11,18 @@ import type { Pool } from "./elo";
  *   human-like engine when given the legal moves (ChessArena, ACL 2026), and
  *   non-reasoning models far lower (LLM Chess, 2025). So flagship models at
  *   high effort start a little above 1200 and small free models near 600.
- * - The decision models (Jev and the like) only choose among moves that code
- *   has already checked one move deep, which plays like a careful beginner:
- *   about 850. They answer instantly, which is worth more at bullet.
+ * - The decision models play the assisted hybrid: local tactics and notes,
+ *   then one call when the notes do not already settle the move. In October
+ *   2026 that hybrid scored 23/36 against Stockfish 19 held to UCI_Elo 1320
+ *   (6 games each, colors alternating, 80 ms a move; a game still going at
+ *   100 plies counts as a win only when a queen ahead, otherwise a draw).
+ *   That is +99 ± 118,
+ *   about 1420. The six models overlapped inside that margin, so they share
+ *   1400, rounded to the nearest 50. UCI_Elo is a CCRL figure; around 1400
+ *   it sits close to this site's chess.com-like scale. A notes-only stand-in,
+ *   with no model call, scored about 1390 ± 150 against the same engine.
+ *   Bullet still adds 100, because they answer instantly. The match measured
+ *   move quality with time left, not a 1+0 clock.
  */
 const BASE: Partial<Record<Provider, Record<string, number>>> = {
   codex: { "gpt-6-astra": 1100, "gpt-6.1-sol": 1000, "gpt-6-luna": 850 },
@@ -25,11 +34,11 @@ const BASE: Partial<Record<Provider, Record<string, number>>> = {
     "gemini-3.5-flash-lite": 700,
     "gemini-3.1-flash-lite": 650,
   },
-  jev: { "jev-latest": 850 },
-  mercury: { "mercury-decide": 850 },
-  subq: { "subq-snap-preview": 850 },
-  openai: { "gpt-6-luna": 850 },
-  gateway: { "liquid/d1": 800, "microsoft/microsoft-decision-1": 800 },
+  jev: { "jev-latest": 1400 },
+  mercury: { "mercury-decide": 1400 },
+  subq: { "subq-snap-preview": 1400 },
+  openai: { "gpt-6-luna": 1400 },
+  gateway: { "liquid/d1": 1400, "microsoft/microsoft-decision-1": 1400 },
 };
 
 /** For a model that is not listed above. */
@@ -38,11 +47,11 @@ const PROVIDER_DEFAULT: Record<Provider, number> = {
   grok: 950,
   gemini: 800,
   openrouter: 600,
-  jev: 850,
-  mercury: 850,
-  subq: 850,
-  openai: 850,
-  gateway: 800,
+  jev: 1400,
+  mercury: 1400,
+  subq: 1400,
+  openai: 1400,
+  gateway: 1400,
   fake: 600,
 };
 

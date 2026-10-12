@@ -114,6 +114,15 @@ describe("shortlist", () => {
     expect(sans([]).length).toBe(20);
   });
 
+  it("drops a move that allows a quiet attack when another move at the same material does not", () => {
+    // The knight on e4 is pinned by the rook, and only the bishop defends it. Bb5 leaves it to Ng5.
+    // Bc2 still defends it. Kd1 lets the rook step to d8 and pin the bishop to the king.
+    const moves = shortlist(assessFen("k3r3/5n2/8/8/4N3/3B4/8/4K3 w - - 0 1")).map((a) => a.move.san);
+    expect(moves).toContain("Bc2");
+    expect(moves).not.toContain("Bb5");
+    expect(moves).not.toContain("Kd1");
+  });
+
   it("plays a check that forces mate on the next move, and nothing else", () => {
     // King on g5, queen on f7, black king on g8. Stepping the king up mates next move.
     expect(shortlist(assessFen("6k1/5Q2/8/6K1/8/8/8/8 w - - 0 1")).map((a) => a.move.san).sort()).toEqual(["Kf6+", "Kg6+"]);

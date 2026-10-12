@@ -1,6 +1,6 @@
 import { describeMove, textBoard } from "../chess/describe";
 import type { LegalMove } from "../chess/rules";
-import { focusMoves, NOTE, WINNING_LEAD, survey, type Phase, type Survey } from "../chess/notes";
+import { focusMoves, isForcingNote, NOTE, noteScore, WINNING_LEAD, survey, type Phase, type Survey } from "../chess/notes";
 import { assessMoves, shortlist } from "../chess/tactics";
 import { numberedMoves } from "./prompt";
 import { errorName, providerError } from "./result";
@@ -181,6 +181,30 @@ function option(move: LegalMove, notes: readonly string[] = []): DecisionOption 
  */
 const CLEAR_LEAD = 1.35;
 
+/**
+ * A forcing note this far ahead of every other move is played without asking.
+ * A threat the move only sets up still goes to the model, so the opening is not a script.
+ */
+const OBVIOUS_MARGIN = 8;
+
+/**
+ * Below this the call can outlast the clock. The slowest decision replies take
+ * about two and a half seconds, so the move is taken from the shortlist at once.
+ */
+const HURRY_MS = 3_500;
+
+function obviousMove(view: Survey, moves: readonly LegalMove[]): LegalMove | null {
+  const ranked = moves
+    .map((move) => {
+      const said = view.notes.get(move.uci) ?? [];
+      return { move, score: noteScore(said, view.lead), forcing: said.some(isForcingNote) };
+    })
+    .sort((a, b) => b.score - a.score || (a.move.uci < b.move.uci ? -1 : 1));
+  const [top, second] = ranked;
+  if (!top?.forcing || !second || top.score - second.score < OBVIOUS_MARGIN) return null;
+  return top.move;
+}
+
 /** The move the two orderings support, or the stated choice when no probabilities came back. */
 function chooseMove(answers: readonly DecisionAnswer[], rng: () => number): string | null {
   const totals = new Map<string, number>();
@@ -230,10 +254,17 @@ export function decisionAdapter(decide: Decider, options: DecisionOptions = {}):
     const assist = options.assist !== false;
     const notes = options.notes !== false;
     const tactical = assist ? shortlist(assessMoves(request.history)).map((a) => a.move) : request.legalMoves;
+    // The shortlist is already the sound moves, and they tie on material, so any of them is played.
+    if (assist && tactical.length > 0 && request.remainingMs <= HURRY_MS) {
+      const index = Math.min(tactical.length - 1, Math.floor(rng() * tactical.length));
+      return { kind: "move", san: tactical[index]!.san };
+    }
     const view = survey(request.history, notes ? tactical.map((m) => m.uci) : []);
     const moves = assist && notes ? focusMoves(view, tactical, rng) : tactical;
     // With one sound move there is nothing to ask.
     if (assist && moves.length === 1) return { kind: "move", san: moves[0].san };
+    const plain = assist && notes ? obviousMove(view, moves) : null;
+    if (plain) return { kind: "move", san: plain.san };
     try {
       const outcome = await decide(buildQuery(request, moves, rng, view, notes));
       if ("error" in outcome) return providerError(outcome.error);

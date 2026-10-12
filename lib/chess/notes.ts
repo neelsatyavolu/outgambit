@@ -186,8 +186,38 @@ function placementNote(chess: Chess, move: Move, scene: Scene): string | null {
     return "puts the knight on the edge of the board";
   }
   if (ply >= OPENING_PLIES) return null;
+  // Only the natural squares. Ne2 and Bd3 were filling the list and pushing Nf3 out.
+  if (home && move.piece === "n") return NATURAL_KNIGHT.has(move.to) ? "develops a knight" : null;
+  if (home && move.piece === "b") {
+    const forward = rankFor(move.to, side) >= 4 && fileOf(move.to) > 0 && fileOf(move.to) < 7;
+    return forward ? "develops the bishop" : null;
+  }
   if (home) return "develops a piece";
   return move.captured ? null : "moves a piece that is already developed";
+}
+
+/** The squares a knight develops to. The other knight moves do not get that credit. */
+const NATURAL_KNIGHT = new Set(["c3", "f3", "c6", "f6"]);
+/** A bishop's first square on the long diagonal. These still count as active. */
+const FIANCHETTO = new Set(["b2", "g2", "b7", "g7"]);
+
+/**
+ * An enemy piece this move still attacks, the dearest one. Only in the
+ * opening, and only a piece it already attacked: stepping the bishop from
+ * b5 back to a4 keeps the knight under attack, and c4 or the trade does not.
+ */
+function keptAttack(chess: Chess, move: Move, scene: Scene): string | null {
+  if (scene.phase !== "opening" || move.captured || move.piece === "p" || move.piece === "k") return null;
+  const watched = pieces(chess).filter(
+    (p) => p.color !== move.color && p.type !== "k" && p.type !== "p" && chess.attackers(p.square, move.color).includes(move.from),
+  );
+  if (watched.length === 0) return null;
+  chess.move(move.san);
+  const still = watched
+    .filter((p) => chess.get(p.square)?.type === p.type && chess.attackers(p.square, move.color).includes(move.to))
+    .sort((a, b) => VALUES[b.type] - VALUES[a.type]);
+  chess.undo();
+  return still[0] ? `keeps the attack on the ${PIECE_NAMES[still[0].type]}` : null;
 }
 
 /**
@@ -277,6 +307,7 @@ function boxesIn(chess: Chess, scene: Scene): boolean {
  * many moves its piece has now. Leaves the board as it found it.
  */
 function notesFor(chess: Chess, move: Move, before: number, scene: Scene): string[] {
+  const kept = keptAttack(chess, move, scene);
   chess.move(move.san);
   const check = chess.inCheck();
   const draws = chess.isDraw();
@@ -286,7 +317,17 @@ function notesFor(chess: Chess, move: Move, before: number, scene: Scene): strin
     move.captured !== undefined &&
     VALUES[move.captured] === VALUES[move.piece] &&
     chess.attackers(move.to, other(move.color)).length > 0;
-  const placement = castles ? "makes the king safe" : placementNote(chess, move, scene);
+  // Keeping an attack is the reason the piece moved again, so it is not also called aimless.
+  const placement = castles ? "makes the king safe" : kept ? null : placementNote(chess, move, scene);
+  // Ne2 and Be2 earn no development note. "More active" was putting them back on the list.
+  const refusedMinor =
+    placement === null &&
+    !kept &&
+    !castles &&
+    scene.ply < OPENING_PLIES &&
+    rankFor(move.from, move.color) === 1 &&
+    !FIANCHETTO.has(move.to) &&
+    (move.piece === "n" || move.piece === "b");
   const mateThreat = next?.moves().some((san) => san.endsWith("#")) ? "threatens checkmate next move" : null;
   const threat = castles ? null : threatNote(chess, move, check);
   const found = [
@@ -294,12 +335,13 @@ function notesFor(chess: Chess, move: Move, before: number, scene: Scene): strin
     mateThreat,
     !draws && scene.seen.has(positionKey(chess)) ? NOTE.repeats : null,
     threat,
+    kept,
     // A move that already threatens something is described by that, not by what it prepares as well.
-    !draws && !mateThreat && !threat && next ? planNote(next, move, scene) : null,
+    !draws && !mateThreat && !threat && !kept && next ? planNote(next, move, scene) : null,
     trade ? NOTE.trade : null,
     boxesIn(chess, scene) ? NOTE.boxes : null,
     // A move already described by where its piece lands is not also described by how free it is there.
-    placement ?? activityNote(next, move, before),
+    placement ?? (kept || refusedMinor ? null : activityNote(next, move, before)),
   ];
   chess.undo();
   return found.filter((note) => note !== null).slice(0, MOST_NOTES);
@@ -352,6 +394,16 @@ const MAX_OPTIONS = 6;
  * How well a note speaks of a move. A mate threat outranks development, and
  * an early queen or a king walk counts against the move. Zero is silence.
  */
+/** A mate, fork, or attack that happens on this move, rather than one the move only prepares. */
+export function isForcingNote(note: string): boolean {
+  return note.startsWith("threatens checkmate") || note.startsWith("forks ") || note.startsWith("attacks ");
+}
+
+/** How well these notes speak of a move. Higher is better. */
+export function noteScore(notes: readonly string[], lead: number): number {
+  return notes.reduce((sum, note) => sum + weight(note, lead), 0);
+}
+
 function weight(note: string, lead: number): number {
   if (note.startsWith("threatens checkmate")) return 50;
   // A mate prepared for next move outranks development. A fork prepared for then sits just under a fork played now.
@@ -361,7 +413,11 @@ function weight(note: string, lead: number): number {
   if (note === NOTE.boxes) return 24;
   if (note === "makes the king safe") return 22;
   if (note.startsWith("pushes a passed") || note.startsWith("advances a passed")) return 20;
-  if (note === "develops a piece" || note === "claims the centre") return 18;
+  // A knight outranks a centre pawn, which outranks a bishop that only develops.
+  if (note === "develops a knight") return 20;
+  if (note === "claims the centre") return 19;
+  if (note === "develops the bishop" || note === "develops a piece") return 18;
+  if (note.startsWith("keeps the attack")) return 16;
   if (note.startsWith("puts the rook")) return 16;
   if (note.startsWith("brings the king")) return 14;
   if (note.startsWith("makes the") && note.endsWith("more active")) return 10;
@@ -395,11 +451,10 @@ function take<T>(items: readonly T[], n: number, rng: () => number): T[] {
  * before weaker ones. `rng` only breaks ties that cross the six-move cutoff.
  */
 export function focusMoves(view: Survey, moves: readonly LegalMove[], rng: () => number): LegalMove[] {
-  if (moves.length <= MAX_OPTIONS) return [...moves];
   const ranked = moves
     .map((move) => ({
       move,
-      score: (view.notes.get(move.uci) ?? []).reduce((sum, note) => sum + weight(note, view.lead), 0),
+      score: noteScore(view.notes.get(move.uci) ?? [], view.lead),
     }))
     .sort((a, b) => b.score - a.score || (a.move.uci < b.move.uci ? -1 : 1));
   const best = ranked[0]?.score ?? 0;

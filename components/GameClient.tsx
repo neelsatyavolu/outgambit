@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { isLegalMove } from "@/lib/chess/premove";
 import { api } from "@/lib/client/api";
-import { syncClock, type ClockSync } from "@/lib/client/clock";
-import { isStale, pollIntervalMs, shownFen } from "@/lib/client/sync";
+import { handClock, syncClock, type ClockSync } from "@/lib/client/clock";
+import { isStale, pollIntervalMs, retryPremove, shownFen } from "@/lib/client/sync";
 import { useTabTitle } from "@/lib/client/tab-title";
 import { capturedPieces, headline, materialLead } from "@/lib/format";
 import { opposite, type Color, type GameView } from "@/lib/game/types";
@@ -49,10 +49,13 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
   /** Moves the player has queued for their coming turns, soonest first. */
   const [premoves, setPremoves] = useState(NO_PREMOVES);
   const [shown, setShown] = useState<number | null>(null);
+  /** Clocks while a move is in flight: the player's clock stops and the opponent's starts. */
+  const [held, setHeld] = useState<ReturnType<typeof handClock> | null>(null);
   const sending = useRef(false);
   // The poll in flight, so a move can drop it and take the connection.
   const pollAbort = useRef<AbortController | null>(null);
   const clockSync = useRef<ClockSync | null>(null);
+  const clockAt = useRef(opened);
   // The newest view and queue, for answers that arrive after the render that asked for them.
   const latest = useRef<GameView | null>(initial);
   const queue = useRef(NO_PREMOVES);
@@ -67,7 +70,9 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
     if (isStale(latest.current, view)) return false;
     latest.current = view;
     clockSync.current = syncClock(clockSync.current, view, sentAt, receivedAt);
-    setSynced({ view, at: view.serverNow - clockSync.current.offsetMs });
+    const at = view.serverNow - clockSync.current.offsetMs;
+    clockAt.current = at;
+    setSynced({ view, at });
     return true;
   }
 
@@ -75,12 +80,13 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
   const [refetch, setRefetch] = useState(0);
   const refresh = () => setRefetch((n) => n + 1);
 
-  async function play(uci: string, view: GameView) {
+  async function play(uci: string, view: GameView, fromQueue = false): Promise<boolean> {
     const chess = new Chess(view.fen);
     try {
       chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
     } catch {
-      return;
+      if (fromQueue) requeue(NO_PREMOVES);
+      return true;
     }
     // Drop a poll that has not answered yet, so this move is not stuck behind it.
     pollAbort.current?.abort();
@@ -89,18 +95,35 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
     setError(null);
     setShown(null);
     setOptimistic({ fen: chess.fen(), from: uci.slice(0, 2), to: uci.slice(2, 4) });
+    setHeld(handClock(view, clockAt.current, performance.now()));
     const sentAt = performance.now();
-    const response = await api<GameView>(`/api/games/${id}/moves`, "POST", { move: uci, ply: view.moves.length });
+    const lagMs = Math.min(10_000, Math.max(0, clockSync.current?.networkMs ?? 0));
+    const response = await api<GameView>(`/api/games/${id}/moves`, "POST", { move: uci, ply: view.moves.length, lagMs });
     const receivedAt = performance.now();
     sending.current = false;
     setOptimistic(null);
-    if (response.success) receive(response.data, sentAt, receivedAt);
-    else {
-      // Anything queued was planned on top of the move that was just refused.
-      requeue(NO_PREMOVES);
-      setError(response.error);
-      refresh();
+    if (response.success) {
+      // The move is on the board. Drop it before the next queued move is considered.
+      if (fromQueue && queue.current[0] === uci) requeue(queue.current.slice(1));
+      receive(response.data, sentAt, receivedAt);
+      return true;
     }
+    setHeld(null);
+    // A premove that only lost the race, or never left, is tried again with the next view.
+    if (fromQueue && retryPremove(response.error)) {
+      refresh();
+      return false;
+    }
+    if (fromQueue && response.error === "That move was already played.") {
+      if (queue.current[0] === uci) requeue(queue.current.slice(1));
+      refresh();
+      return true;
+    }
+    // Anything queued was planned on top of the move that was just refused.
+    requeue(NO_PREMOVES);
+    setError(response.error);
+    refresh();
+    return true;
   }
 
   /**
@@ -109,12 +132,15 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
    * the whole queue is dropped.
    */
   function receive(view: GameView, sentAt: number, receivedAt: number) {
+    setHeld(null);
     if (!accept(view, sentAt, receivedAt)) return;
-    const [next, ...rest] = queue.current;
+    const next = queue.current[0];
     if (!next || view.status !== "active" || view.turn !== view.playerColor) return;
-    const legal = isLegalMove(view.fen, next);
-    requeue(legal ? rest : NO_PREMOVES);
-    if (legal) void play(next, view);
+    if (!isLegalMove(view.fen, next)) {
+      requeue(NO_PREMOVES);
+      return;
+    }
+    void play(next, view, true);
   }
   const onPolled = useEffectEvent(receive);
   // Stable for the life of the screen, so a poll that only moves a clock does not redraw the board.
@@ -194,6 +220,7 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
   if (!synced) return <p className="muted section">Loading…</p>;
 
   const { view } = synced;
+  const clock = held ?? { whiteMs: view.whiteMs, blackMs: view.blackMs, at: synced.at, turn: view.turn };
   const total = view.moves.length;
   const live = shown === null || shown >= total;
   const myMove = myTurn && live && !optimistic;
@@ -222,9 +249,9 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
     // A side shows the pieces it has taken, which are the ones the other side lost.
     captured: lost[opposite(color)],
     lead: materialLead(view.fen, color),
-    ms: color === "white" ? view.whiteMs : view.blackMs,
-    at: synced.at,
-    running: active && view.turn === color,
+    ms: color === "white" ? clock.whiteMs : clock.blackMs,
+    at: clock.at,
+    running: active && clock.turn === color,
   });
 
   return (
