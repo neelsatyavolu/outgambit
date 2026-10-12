@@ -1,4 +1,4 @@
-import { Chess, type Color as Side, type Square } from "chess.js";
+import { Chess, type Color as Side, type Move, type Square } from "chess.js";
 import { HUNT_LIMITS, MATE_LIMITS, forcedMates } from "./mate";
 import type { LegalMove } from "./rules";
 
@@ -22,7 +22,7 @@ export type Assessed = {
   repeats: boolean;
   /** Material won at once: the piece taken, plus what a promotion adds. */
   gain: number;
-  /** The most valuable piece the opponent could then win. */
+  /** Material the opponent can win after legal captures and recaptures. */
   loss: number;
   score: number;
   /** Squares the enemy king could step to after this move. */
@@ -104,31 +104,95 @@ function material(chess: Chess, side: Side): { all: number; pieces: number } {
   return { all, pieces };
 }
 
+const captureValue = (move: Move): number =>
+  (move.captured ? VALUES[move.captured] : 0) + (move.promotion ? VALUES[move.promotion] - VALUES.p : 0);
+
 /**
- * What `side` stands to lose on its worst-placed piece: taken for free, or by
- * something cheaper. A king is not counted as an attacker of a defended piece,
- * because it cannot take one.
+ * A static exchange: try legal attackers cheapest first, and allow either
+ * side to decline a losing recapture. Only one square is searched; every
+ * capture removes a piece. Making the moves also
+ * reveals x-rays and excludes pinned defenders and illegal king captures.
  */
-function worstLoss(chess: Chess, side: Side): number {
-  let worst = 0;
-  for (const row of chess.board()) {
-    for (const piece of row) {
-      if (!piece || piece.color !== side || piece.type === "k") continue;
-      const value = VALUES[piece.type];
-      if (value <= worst) continue;
-      const attackers = chess.attackers(piece.square, other(side));
-      if (attackers.length === 0) continue;
-      const defended = chess.attackers(piece.square, side).length > 0;
-      const cheapest = Math.min(
-        ...attackers.map((sq) => {
-          const attacker = chess.get(sq as Square)!.type;
-          return attacker === "k" && defended ? Number.POSITIVE_INFINITY : VALUES[attacker];
-        }),
-      );
-      if (!defended || cheapest < value) worst = value;
+function exchange(chess: Chess, target: Square): number {
+  const victim = chess.get(target);
+  if (!victim || victim.type === "k") return 0;
+  const attackers = chess.attackers(target, chess.turn()).sort((a, b) => {
+    const value = (square: Square) => {
+      const piece = chess.get(square)!;
+      return piece.type === "k" ? 100 : VALUES[piece.type];
+    };
+    return value(a) - value(b);
+  });
+  let best = 0;
+  for (const from of attackers) {
+    let move: Move;
+    try {
+      move = chess.move({ from, to: target, promotion: "q" });
+    } catch {
+      // Geometric attackers include pieces pinned to their king.
+      continue;
     }
+    const value = captureValue(move);
+    const gain = value - exchange(chess, target);
+    chess.undo();
+    best = Math.max(best, gain);
+    // No recapture can win more than the piece on this square.
+    if (best === value) break;
+  }
+  return best;
+}
+
+/** The opponent's best immediate material win, with the exchange resolved. */
+function worstLoss(chess: Chess, replies: readonly string[]): number {
+  let worst = 0;
+  for (const san of replies) {
+    if (!san.includes("x") && !san.includes("=")) continue;
+    const reply = chess.move(san);
+    const gain = captureValue(reply);
+    // A promotion that stalemates adds no usable material, but a captured
+    // rook or queen is still lost even if only kings remain afterwards.
+    const net = gain <= worst ? 0 : reply.promotion && chess.isDraw()
+      ? (reply.captured ? VALUES[reply.captured] : 0) : gain - exchange(chess, reply.to);
+    chess.undo();
+    worst = Math.max(worst, net);
   }
   return worst;
+}
+
+/**
+ * A checking fork forces a response before the threatened piece can move.
+ * Try every evasion, then resolve the next capture. An incomplete scan says
+ * nothing; at most 32 evasions are evaluated across the entire position.
+ */
+function checkingLoss(chess: Chess, replies: readonly string[], loss: number, budget: { left: number }): number {
+  for (const san of replies) {
+    if (budget.left <= 0) break;
+    if (!san.endsWith("+") || san.startsWith("K")) continue;
+    const reply = chess.move(san);
+    const fork = chess.board().flat().some((piece) =>
+      piece && piece.color === chess.turn() && VALUES[piece.type] >= VALUES.n &&
+      chess.attackers(piece.square, reply.color).includes(reply.to),
+    );
+    if (fork) {
+      const evasions = chess.moves();
+      if (evasions.length <= budget.left) {
+        let best = Number.POSITIVE_INFINITY;
+        for (const evasion of evasions) {
+          budget.left -= 1;
+          const response = chess.move(evasion);
+          const next = response.san.endsWith("#") || chess.isDraw() ? [] : chess.moves();
+          const threat = next.some((move) => move.endsWith("#")) ? 100 : worstLoss(chess, next);
+          best = Math.min(best, captureValue(reply) - captureValue(response) + threat);
+          chess.undo();
+          // One evasion saving the material is enough to disprove the fork.
+          if (best <= loss) break;
+        }
+        loss = Math.max(loss, best);
+      }
+    }
+    chess.undo();
+  }
+  return loss;
 }
 
 /** What makes two positions the same for repetition: the pieces, whose move it is, and the castling and en passant rights. */
@@ -146,13 +210,15 @@ function assessChess(chess: Chess, seen: ReadonlySet<string>): Assessed[] {
   const ourKing = kingAt(chess, side);
   const enemyKing = kingAt(chess, other(side));
   const gapBefore = ourKing && enemyKing ? kingSteps(ourKing, enemyKing) : 0;
+  const forkBudget = { left: 32 };
   return chess.moves({ verbose: true }).map((m) => {
     chess.move(m.san);
     const mate = chess.isCheckmate();
     const draw = !mate && chess.isDraw();
-    const allowsMate = !mate && !draw && chess.moves().some((reply) => reply.endsWith("#"));
-    const loss = mate ? 0 : worstLoss(chess, side);
-    const flight = mate || draw || !enemyKing ? 0 : chess.moves({ square: enemyKing as Square }).length;
+    const replies = mate || draw ? [] : chess.moves();
+    const allowsMate = replies.some((reply) => reply.endsWith("#"));
+    const loss = checkingLoss(chess, replies, worstLoss(chess, replies), forkBudget);
+    const flight = enemyKing ? replies.filter((reply) => reply.startsWith("K") || reply.startsWith("O-O")).length : 0;
     const repeats = seen.has(positionKey(chess));
     const box = hunt && !mate && !draw && enemyKing ? boxSize(chess, enemyKing, other(side)) : 0;
     chess.undo();

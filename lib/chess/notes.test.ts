@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Chess } from "chess.js";
 import { replay } from "./rules";
 import { focusMoves, survey, surveyPosition } from "./notes";
 
@@ -240,6 +241,25 @@ describe("the position as a whole", () => {
     expect(offered).not.toContain("Qh5");
     expect(offered).not.toContain("Ke2");
     expect(offered.length).toBeLessThanOrEqual(6);
+  });
+
+  it.each([0, 0.999])("keeps every stronger score tier before sampling a tie with rng=%s", (random) => {
+    const legal = new Chess(ROOK_AGAINST_KNIGHT).moves({ verbose: true }).map((move) => ({
+      san: move.san,
+      uci: move.lan,
+      from: move.from,
+      to: move.to,
+      piece: move.piece,
+      check: move.san.endsWith("+"),
+      mate: move.san.endsWith("#"),
+    }));
+    const view = surveyPosition(ROOK_AGAINST_KNIGHT, 60);
+    const kept = focusMoves(view, legal, () => random).map((move) => move.san);
+    // The attacks and rook placement outrank king activity, which outranks quiet rook activity.
+    expect(kept).toEqual(expect.arrayContaining(["Rb1", "Ra4", "Ra7", "Rc1", "Rd1"]));
+    expect(kept).toHaveLength(6);
+    expect(kept).toContain(random === 0 ? "Kd2" : "Kf2");
+    expect(kept.some((san) => ["Ra2", "Ra3", "Ra5", "Ra6"].includes(san))).toBe(false);
   });
 
   it("keeps to the two most telling things about a move", () => {

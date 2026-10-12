@@ -31,7 +31,8 @@ describe("assessMoves", () => {
   it("counts a threatened piece that the move does nothing about", () => {
     // 1. e4 d5 2. exd5 Qxd5 3. Nc3 attacks the queen.
     const history = ["e4", "d5", "exd5", "Qxd5", "Nc3"];
-    expect(find(history, "Nf6").loss).toBe(9);
+    // The knight on f6 can recapture on d5: a queen for a knight still loses six.
+    expect(find(history, "Nf6").loss).toBe(6);
     expect(find(history, "Qa5").loss).toBe(0);
   });
 
@@ -51,6 +52,41 @@ describe("assessMoves", () => {
   it("values a promotion", () => {
     const history = ["a4", "b5", "axb5", "a6", "bxa6", "Bb7", "axb7", "Nc6"];
     expect(find(history, "bxa8=Q").gain).toBe(5 + 8);
+  });
+
+  it.each([
+    ["an attacker pinned to its king", "4k3/4n3/8/3B4/8/8/P7/K3R3 w - - 0 1", 0],
+    ["a defender pinned to its king", "4r2k/6b1/8/8/3B4/8/P3N3/4K3 w - - 0 1", 3],
+    ["a rook exchanged for a knight", "7k/8/2n5/8/3R4/8/P4B2/6K1 w - - 0 1", 2],
+    ["an x-ray recapture after an even trade", "3r3k/6b1/8/8/3B4/4P3/P7/6K1 w - - 0 1", 1],
+  ])("counts the legal exchange with %s", (_name, fen, loss) => {
+    expect(assessFen(fen).find((a) => a.move.san === "a3")).toMatchObject({ loss, score: 0 - loss });
+  });
+
+  it("counts a pawn lost to en passant", () => {
+    expect(assessFen("k7/8/8/8/3p4/8/4P3/6K1 w - - 0 1").find((a) => a.move.san === "e4"))
+      .toMatchObject({ loss: 1, score: -1 });
+  });
+
+  it("avoids a checking fork that wins the queen on the following move", () => {
+    const assessed = assessFen("6k1/8/8/8/3n4/8/7P/Q3K3 w - - 0 1");
+    // h3 Nc2+ forces a king move, then Nxa1 wins the queen.
+    expect(assessed.find((a) => a.move.san === "h3")?.loss).toBe(9);
+    expect(shortlist(assessed).map((a) => a.move.san)).not.toContain("h3");
+  });
+
+  it("keeps a move when the checking fork can be captured", () => {
+    // After h3 Nc2+, Bxc2 saves the queen and wins the knight.
+    expect(assessFen("6k1/8/8/8/3n4/8/7P/QB2K3 w - - 0 1").find((a) => a.move.san === "h3")?.loss).toBe(0);
+  });
+
+  it("does not treat a promotion ending in stalemate as a material threat", () => {
+    expect(assessFen("8/5k1K/8/5b2/8/8/6p1/8 w - - 0 1").find((a) => a.move.san === "Kh8")?.loss).toBe(0);
+  });
+
+  it("uses a stronger recapture when the cheapest one exposes an x-ray", () => {
+    // After bxa4, Rxa4 keeps b3 blocking the bishop. bxa4 instead loses to Bxa4.
+    expect(assessFen("4k3/8/8/qp6/P2N4/1P1p4/R1b5/7K w - - 0 1").find((a) => a.move.san === "Kh2")?.loss).toBe(0);
   });
 });
 

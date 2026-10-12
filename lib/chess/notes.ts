@@ -391,8 +391,8 @@ function take<T>(items: readonly T[], n: number, rng: () => number): T[] {
  * The moves worth asking about. A long list costs tokens twice (the question
  * is asked in two orders) and these models play the same way once most of the
  * options say nothing. Moves the notes speak against are left out when a move
- * they speak for exists, and the list stops at six. The best-spoken move is
- * always kept. `rng` only chooses among moves the notes rate alike.
+ * they speak for exists, and the list stops at six. Stronger scores are kept
+ * before weaker ones. `rng` only breaks ties that cross the six-move cutoff.
  */
 export function focusMoves(view: Survey, moves: readonly LegalMove[], rng: () => number): LegalMove[] {
   if (moves.length <= MAX_OPTIONS) return [...moves];
@@ -406,9 +406,11 @@ export function focusMoves(view: Survey, moves: readonly LegalMove[], rng: () =>
   const spoken = ranked.filter((item) => item.score > 0);
   const pool = spoken.length > 0 ? spoken : ranked.filter((item) => item.score === best);
   if (pool.length <= MAX_OPTIONS) return moves.filter((move) => pool.some((item) => item.move.uci === move.uci));
-  const elite = pool.filter((item) => item.score === best);
-  const rest = pool.filter((item) => item.score !== best);
-  const picked = elite.length >= MAX_OPTIONS ? take(elite, MAX_OPTIONS, rng) : [...elite, ...take(rest, MAX_OPTIONS - elite.length, rng)];
+  const cutoff = pool[MAX_OPTIONS - 1]!.score;
+  const stronger = pool.filter((item) => item.score > cutoff);
+  const tied = pool.filter((item) => item.score === cutoff);
+  const slots = MAX_OPTIONS - stronger.length;
+  const picked = [...stronger, ...(tied.length <= slots ? tied : take(tied, slots, rng))];
   const keep = new Set(picked.map((item) => item.move.uci));
   return moves.filter((move) => keep.has(move.uci));
 }
