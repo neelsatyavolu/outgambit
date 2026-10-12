@@ -51,6 +51,9 @@ describe("listForOwner", () => {
     expect(models.find((m) => m.provider === "mercury")).toMatchObject({
       id: "mercury-decide", label: "Mercury Decide", supportsEffort: false, enabled: false, custom: false,
     });
+    expect(models.find((m) => m.provider === "subq")).toMatchObject({
+      id: "subq-snap-preview", label: "SubQ Snap", supportsEffort: false, enabled: false, custom: false,
+    });
     expect(models.find((m) => m.provider === "openai")).toMatchObject({
       id: "gpt-6-luna", label: "GPT-6 Luna (Decisions)", supportsEffort: false, enabled: false, custom: false,
     });

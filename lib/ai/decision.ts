@@ -7,7 +7,7 @@ import { errorName, providerError } from "./result";
 import type { Adapter, MoveRequest } from "./types";
 
 /**
- * Decision models (Jev, Mercury Decide, OpenAI Decisions, the ones on Vercel AI Gateway)
+ * Decision models (Jev, Mercury Decide, SubQ Snap, OpenAI Decisions, the ones on Vercel AI Gateway)
  * do not write a move: they pick one option from a list, in a fraction of a
  * second. They also cannot calculate. So code does the calculating first
  * (a checkmate it can force within three moves, pieces left hanging, a

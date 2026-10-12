@@ -4,6 +4,7 @@ import { GATEWAY_CREDITS_URL } from "../ai/gateway";
 import { testJevKey } from "../ai/jev";
 import { testMercuryKey } from "../ai/mercury";
 import { testOpenAiKey } from "../ai/openai-decisions";
+import { testSubqKey } from "../ai/subq";
 import type { Db, Queryable } from "../db/client";
 import { listConnections } from "../db/connections";
 import { deleteModel, listModelRows, upsertModel } from "../db/models";
@@ -29,6 +30,7 @@ export const CONNECTABLE: ReadonlyArray<{ provider: Provider; label: string; kin
   { provider: "openrouter", label: "OpenRouter", kind: "key", note: "Free models only. Slow games." },
   { provider: "jev", label: "Jev (TypeSafe)", kind: "key", note: "Fast. About $0.001 a game." },
   { provider: "mercury", label: "Mercury Decide (Inception)", kind: "key", note: "Fast. About $0.001 a game." },
+  { provider: "subq", label: "SubQ Snap (Subquadratic)", kind: "key", note: "Decision model. About $0.002 a game." },
   { provider: "openai", label: "OpenAI Decisions", kind: "key", note: "Fast. About $0.003 a game, on an OpenAI API key." },
   { provider: "gateway", label: "Vercel AI Gateway", kind: "key", note: "Fast decision models. Needs paid gateway credits." },
 ];
@@ -65,6 +67,9 @@ async function checkKey(provider: Provider, apiKey: string, fetcher: typeof fetc
   }
   if (provider === "mercury") {
     return (await testMercuryKey(apiKey, fetcher)) ? { ok: true } : { ok: false, error: "Inception refused the key." };
+  }
+  if (provider === "subq") {
+    return (await testSubqKey(apiKey, fetcher)) ? { ok: true } : { ok: false, error: "Subquadratic refused the key." };
   }
   if (provider === "openai") {
     return (await testOpenAiKey(apiKey, fetcher)) ? { ok: true } : { ok: false, error: "OpenAI refused the key." };

@@ -22,7 +22,7 @@ describe("seedRating", () => {
   });
 
   it("rates the decision models higher at bullet, where an instant reply is worth more", () => {
-    for (const [provider, model] of [["jev", "jev-latest"], ["mercury", "mercury-decide"], ["openai", "gpt-6-luna"], ["gateway", "liquid/d1"]] as const) {
+    for (const [provider, model] of [["jev", "jev-latest"], ["mercury", "mercury-decide"], ["subq", "subq-snap-preview"], ["openai", "gpt-6-luna"], ["gateway", "liquid/d1"]] as const) {
       expect(seedRating(provider, model, null, "bullet")).toBeGreaterThan(seedRating(provider, model, null, "regular"));
     }
   });

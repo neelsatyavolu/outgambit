@@ -32,6 +32,7 @@ describe("connectionStatus", () => {
       ["openrouter", "OpenRouter", "key", false, null],
       ["jev", "Jev (TypeSafe)", "key", true, NOW],
       ["mercury", "Mercury Decide (Inception)", "key", false, null],
+      ["subq", "SubQ Snap (Subquadratic)", "key", false, null],
       ["openai", "OpenAI Decisions", "key", false, null],
       ["gateway", "Vercel AI Gateway", "key", false, null],
     ]);
@@ -100,6 +101,16 @@ describe("testConnection", () => {
     expect(calls[0].headers.authorization).toBe("Bearer inc-key");
     const refused = fakeFetch(() => json({}, 401));
     expect(await testConnection(db, "mercury", NOW, refused.fetcher)).toEqual({ ok: false, error: "Inception refused the key." });
+  });
+
+  it("checks a Subquadratic key", async () => {
+    await saveSecret(db, "subq", { kind: "key", apiKey: "sq-key" }, NOW);
+    const { fetcher, calls } = fakeFetch(() => json({ answers: {} }));
+    expect(await testConnection(db, "subq", NOW, fetcher)).toEqual({ ok: true });
+    expect(calls[0].url).toBe("https://api.subq.ai/v1/systemone");
+    expect(calls[0].headers.authorization).toBe("Bearer sq-key");
+    const refused = fakeFetch(() => json({}, 401));
+    expect(await testConnection(db, "subq", NOW, refused.fetcher)).toEqual({ ok: false, error: "Subquadratic refused the key." });
   });
 
   it("reports a key the provider refuses, without echoing its response", async () => {

@@ -27,6 +27,7 @@ const BASE: Partial<Record<Provider, Record<string, number>>> = {
   },
   jev: { "jev-latest": 850 },
   mercury: { "mercury-decide": 850 },
+  subq: { "subq-snap-preview": 850 },
   openai: { "gpt-6-luna": 850 },
   gateway: { "liquid/d1": 800, "microsoft/microsoft-decision-1": 800 },
 };
@@ -39,6 +40,7 @@ const PROVIDER_DEFAULT: Record<Provider, number> = {
   openrouter: 600,
   jev: 850,
   mercury: 850,
+  subq: 850,
   openai: 850,
   gateway: 800,
   fake: 600,

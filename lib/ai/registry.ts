@@ -10,6 +10,7 @@ import { jevAdapter } from "./jev";
 import { mercuryAdapter } from "./mercury";
 import { chatAdapter } from "./openai-chat";
 import { openAiDecisionsAdapter } from "./openai-decisions";
+import { subqAdapter } from "./subq";
 import type { Adapter } from "./types";
 
 const GROK_URL = "https://api.x.ai/v1/chat/completions";
@@ -75,6 +76,7 @@ export async function getAdapter(
   }
   if (provider === "jev") return jevAdapter(secret.apiKey, { fetch: fetcher });
   if (provider === "mercury") return mercuryAdapter(secret.apiKey, { fetch: fetcher });
+  if (provider === "subq") return subqAdapter(secret.apiKey, { fetch: fetcher });
   if (provider === "openai") return openAiDecisionsAdapter(secret.apiKey, { fetch: fetcher });
   if (provider === "gateway") return gatewayAdapter(secret.apiKey, { fetch: fetcher });
   return null;

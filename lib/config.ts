@@ -45,11 +45,12 @@ export const BUDGET = {
 /**
  * US cents per million input tokens for the paid decision models, from each
  * provider's price list on 2026-10-10. Mercury Decide is Inception's discounted
- * price on 2026-10-11. None of them charges for output.
+ * price on 2026-10-11, and SubQ Snap is Subquadratic's price on 2026-10-12. None of them charges for output.
  */
 const CENTS_PER_MILLION_TOKENS: Readonly<Record<string, number>> = {
   "jev/jev-latest": 4.2,
   "mercury/mercury-decide": 2,
+  "subq/subq-snap-preview": 5,
   "openai/gpt-6-luna": 10,
   "gateway/liquid/d1": 4,
   "gateway/microsoft/microsoft-decision-1": 4.2,
@@ -64,7 +65,7 @@ export const DAY_TIME_ZONE = "America/Los_Angeles";
 /** One LLM call may not outlast this, whatever the clock says. */
 export const LLM_CALL_TIMEOUT_MS = 240_000;
 export const JEV_TIMEOUT_MS = 3_000;
-/** One call to any other decision model (Mercury Decide, OpenAI Decisions, AI Gateway). */
+/** One call to any other decision model (Mercury Decide, SubQ Snap, OpenAI Decisions, AI Gateway). */
 export const DECISION_TIMEOUT_MS = 5_000;
 /** The longest a turn by a fast opponent may hold its lease per call. */
 export const FAST_CALL_TIMEOUT_MS = 10_000;
@@ -120,12 +121,12 @@ export const TIME_CONTROLS: readonly TimeControl[] = [
 ];
 
 /** Providers quick enough for bullet and blitz. */
-const FAST_PROVIDERS: readonly Provider[] = ["jev", "mercury", "openai", "gateway", "fake"];
+const FAST_PROVIDERS: readonly Provider[] = ["jev", "mercury", "subq", "openai", "gateway", "fake"];
 
 export const isFastProvider = (provider: Provider): boolean => FAST_PROVIDERS.includes(provider);
 
 /** Providers whose models pick a move from a list (see lib/ai/decision.ts). They play one-minute games only. */
-const DECISION_PROVIDERS: readonly Provider[] = ["jev", "mercury", "openai", "gateway"];
+const DECISION_PROVIDERS: readonly Provider[] = ["jev", "mercury", "subq", "openai", "gateway"];
 const DECISION_TIME_CONTROL = "1+0";
 
 /**

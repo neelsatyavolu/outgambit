@@ -39,7 +39,7 @@ const toAnswer = (answer: ChoiceAnswer | undefined): DecisionAnswer => ({
   probabilities: probabilityMap(answer?.probabilities),
 });
 
-/** Speaks TypeSafe's request shape, which Jev, Mercury Decide and Vercel AI Gateway's decision endpoint share. */
+/** Speaks TypeSafe's request shape, which Jev, Mercury Decide, SubQ Snap and Vercel AI Gateway's decision endpoint share. */
 export function typeSafeDecider(config: TypeSafeConfig): Decider {
   return async (query) => {
     const response = await config.fetch(config.url, {

@@ -27,7 +27,7 @@ describe("time controls", () => {
   });
 
   it("offers decision models one-minute games and nothing else", () => {
-    for (const provider of ["jev", "mercury", "openai", "gateway"] as const) {
+    for (const provider of ["jev", "mercury", "subq", "openai", "gateway"] as const) {
       expect(timeControlsFor(provider).map((t) => t.id)).toEqual(["1+0"]);
     }
   });
@@ -49,6 +49,7 @@ describe("prices", () => {
   it("knows what each paid model charges for a million input tokens, in cents", () => {
     expect(centsPerMillionTokens("jev", "jev-latest")).toBe(4.2);
     expect(centsPerMillionTokens("mercury", "mercury-decide")).toBe(2);
+    expect(centsPerMillionTokens("subq", "subq-snap-preview")).toBe(5);
     expect(centsPerMillionTokens("openai", "gpt-6-luna")).toBe(10);
     expect(centsPerMillionTokens("gateway", "liquid/d1")).toBe(4);
   });

@@ -7,6 +7,7 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   openrouter: "OpenRouter",
   jev: "TypeSafe",
   mercury: "Mercury Decide",
+  subq: "SubQ Snap",
   openai: "OpenAI Decisions",
   gateway: "Vercel AI Gateway",
   fake: "Test",
