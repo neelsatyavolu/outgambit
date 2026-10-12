@@ -45,6 +45,16 @@ describe("createGame", () => {
     expect(h.requests).toHaveLength(0);
   });
 
+  it("starts the clock after loading the provider budget", async () => {
+    const h = harness(db);
+    h.deps.usage.meter = async () => {
+      h.clock.now += 1_237;
+      return { value: meterAt(0), readAt: h.clock.now, error: null };
+    };
+    const created = await createGame(h.deps, input({ provider: "codex", model: "gpt-a", effort: "low" }));
+    expect(created.ok && created.game.turnStartedAt).toBe(NOON + 1_237);
+  });
+
   it("rejects a model that is not on offer", async () => {
     const h = harness(db);
     expect(await createGame(h.deps, input({ model: "nope" }))).toEqual({ ok: false, error: "unknown_model" });

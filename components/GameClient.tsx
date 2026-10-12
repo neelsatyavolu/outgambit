@@ -2,10 +2,11 @@
 
 import { Chess } from "chess.js";
 import Link from "next/link";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { isLegalMove } from "@/lib/chess/premove";
 import { api } from "@/lib/client/api";
-import { isStale, shownFen } from "@/lib/client/sync";
+import { syncClock, type ClockSync } from "@/lib/client/clock";
+import { isStale, pollIntervalMs, shownFen } from "@/lib/client/sync";
 import { useTabTitle } from "@/lib/client/tab-title";
 import { capturedPieces, headline, materialLead } from "@/lib/format";
 import { opposite, type Color, type GameView } from "@/lib/game/types";
@@ -16,8 +17,6 @@ import { MoveList } from "./MoveList";
 import { Seat } from "./Seat";
 
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-const POLL_MS = 1_000;
-const TICK_MS = 100;
 const NO_PREMOVES: readonly string[] = [];
 const YOUR_MOVE_TITLE = "Your move · Gambit";
 /** Keys that step through the game, and how far each one goes from the move on show. */
@@ -33,14 +32,6 @@ type Optimistic = { fen: string; from: string; to: string };
 
 const lastMoveOf = (uci: string | undefined) => (uci ? { from: uci.slice(0, 2), to: uci.slice(2, 4) } : null);
 
-/** The time on a side's clock right now, counting down locally between polls. */
-function liveMs(synced: Synced, color: Color, now: number): number {
-  const { view } = synced;
-  const stored = color === "white" ? view.whiteMs : view.blackMs;
-  const running = view.status === "active" && view.turn === color;
-  return running ? Math.max(0, stored - (now - synced.at)) : stored;
-}
-
 /** Whether a key press belongs to something the viewer is typing into. */
 function isTyping(target: EventTarget | null): boolean {
   const element = target instanceof HTMLElement ? target : null;
@@ -50,7 +41,7 @@ function isTyping(target: EventTarget | null): boolean {
 /** `initial` is the game as the server saw it when it sent the page, or null if this viewer may not see it. */
 export function GameClient({ id, spectator, initial }: { id: string; spectator: boolean; initial: GameView | null }) {
   // One reading of the clock for everything that starts with the page, so the first drawing shows the clocks as sent.
-  const [opened] = useState(() => Date.now());
+  const [opened] = useState(() => performance.now());
   const [synced, setSynced] = useState<Synced | null>(() => (initial ? { view: initial, at: opened } : null));
   const [missing, setMissing] = useState(initial === null);
   const [error, setError] = useState<string | null>(null);
@@ -58,22 +49,25 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
   /** Moves the player has queued for their coming turns, soonest first. */
   const [premoves, setPremoves] = useState(NO_PREMOVES);
   const [shown, setShown] = useState<number | null>(null);
-  const [now, setNow] = useState(opened);
   const sending = useRef(false);
+  // The poll in flight, so a move can drop it and take the connection.
+  const pollAbort = useRef<AbortController | null>(null);
+  const clockSync = useRef<ClockSync | null>(null);
   // The newest view and queue, for answers that arrive after the render that asked for them.
   const latest = useRef<GameView | null>(initial);
   const queue = useRef(NO_PREMOVES);
 
-  function requeue(next: readonly string[]) {
+  const requeue = useCallback((next: readonly string[]) => {
     queue.current = next;
     setPremoves(next);
-  }
+  }, []);
 
   /** Answers can arrive out of order, so one that is behind the board is dropped. Returns whether it was taken. */
-  function accept(view: GameView): boolean {
+  function accept(view: GameView, sentAt: number, receivedAt: number): boolean {
     if (isStale(latest.current, view)) return false;
     latest.current = view;
-    setSynced({ view, at: Date.now() });
+    clockSync.current = syncClock(clockSync.current, view, sentAt, receivedAt);
+    setSynced({ view, at: view.serverNow - clockSync.current.offsetMs });
     return true;
   }
 
@@ -88,14 +82,19 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
     } catch {
       return;
     }
+    // Drop a poll that has not answered yet, so this move is not stuck behind it.
+    pollAbort.current?.abort();
+    pollAbort.current = null;
     sending.current = true;
     setError(null);
     setShown(null);
     setOptimistic({ fen: chess.fen(), from: uci.slice(0, 2), to: uci.slice(2, 4) });
+    const sentAt = performance.now();
     const response = await api<GameView>(`/api/games/${id}/moves`, "POST", { move: uci, ply: view.moves.length });
+    const receivedAt = performance.now();
     sending.current = false;
     setOptimistic(null);
-    if (response.success) receive(response.data);
+    if (response.success) receive(response.data, sentAt, receivedAt);
     else {
       // Anything queued was planned on top of the move that was just refused.
       requeue(NO_PREMOVES);
@@ -109,8 +108,8 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
    * first queued premove goes straight out; if that move is not legal there,
    * the whole queue is dropped.
    */
-  function receive(view: GameView) {
-    if (!accept(view)) return;
+  function receive(view: GameView, sentAt: number, receivedAt: number) {
+    if (!accept(view, sentAt, receivedAt)) return;
     const [next, ...rest] = queue.current;
     if (!next || view.status !== "active" || view.turn !== view.playerColor) return;
     const legal = isLegalMove(view.fen, next);
@@ -118,34 +117,47 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
     if (legal) void play(next, view);
   }
   const onPolled = useEffectEvent(receive);
+  // Stable for the life of the screen, so a poll that only moves a clock does not redraw the board.
+  const playRef = useRef(play);
+  playRef.current = play;
+  const onMove = useCallback((uci: string) => {
+    const current = latest.current;
+    if (current) void playRef.current(uci, current);
+  }, []);
+  const onPremove = useCallback((uci: string) => requeue([...queue.current, uci]), [requeue]);
+  const onCancelPremoves = useCallback(() => requeue(NO_PREMOVES), [requeue]);
 
   const active = synced?.view.status === "active";
   const polling = !missing && (synced === null || active);
+  const opponentToMove = Boolean(active && synced && synced.view.turn !== synced.view.playerColor);
+  const pollMs = pollIntervalMs(synced?.view.timeControl, opponentToMove);
   useEffect(() => {
     // A game this viewer may not see is not asked for again.
     if (missing) return;
     let alive = true;
     const load = async () => {
-      if (sending.current) return;
-      const response = await api<GameView>(`/api/games/${id}`);
+      // One poll at a time. A second one would only compete with a move.
+      if (sending.current || pollAbort.current) return;
+      const controller = new AbortController();
+      pollAbort.current = controller;
+      const sentAt = performance.now();
+      const response = await api<GameView>(`/api/games/${id}`, "GET", undefined, controller.signal);
+      const receivedAt = performance.now();
+      if (pollAbort.current === controller) pollAbort.current = null;
       // A move sent meanwhile will bring back newer state than this poll.
-      if (!alive || sending.current) return;
-      if (response.success) onPolled(response.data);
+      if (!alive || sending.current || controller.signal.aborted) return;
+      if (response.success) onPolled(response.data, sentAt, receivedAt);
       else if (response.error === "Game not found.") setMissing(true);
     };
     void load();
-    const poll = polling ? setInterval(() => void load(), POLL_MS) : undefined;
+    const poll = polling ? setInterval(() => void load(), pollMs) : undefined;
     return () => {
       alive = false;
+      pollAbort.current?.abort();
+      pollAbort.current = null;
       clearInterval(poll);
     };
-  }, [id, missing, polling, refetch]);
-
-  useEffect(() => {
-    if (!active) return;
-    const tick = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(tick);
-  }, [active]);
+  }, [id, missing, polling, refetch, pollMs]);
 
   // A slow model can think for a minute, so the tab says when the wait is over.
   const myTurn = !spectator && synced?.view.status === "active" && synced.view.turn === synced.view.playerColor;
@@ -210,7 +222,8 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
     // A side shows the pieces it has taken, which are the ones the other side lost.
     captured: lost[opposite(color)],
     lead: materialLead(view.fen, color),
-    ms: liveMs(synced, color, now),
+    ms: color === "white" ? view.whiteMs : view.blackMs,
+    at: synced.at,
     running: active && view.turn === color,
   });
 
@@ -223,9 +236,9 @@ export function GameClient({ id, spectator, initial }: { id: string; spectator: 
         premovable={premovable}
         premoves={live ? queued : NO_PREMOVES}
         lastMove={lastMove}
-        onMove={(uci) => void play(uci, view)}
-        onPremove={(uci) => requeue([...queue.current, uci])}
-        onCancelPremoves={() => requeue(NO_PREMOVES)}
+        onMove={onMove}
+        onPremove={onPremove}
+        onCancelPremoves={onCancelPremoves}
       />
       <aside className="side">
         <Seat {...seat(ai, "top")} />

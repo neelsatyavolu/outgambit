@@ -7,7 +7,7 @@ import { makeGame, NOON } from "@/test/factory";
 import { createPgliteDb, createPostgresDb, explicitSslMode, type Db } from "./client";
 import { deleteConnection, getConnection, listConnections, putConnection } from "./connections";
 import {
-  activeGameFor, claimGames, claimLease, commitMove, expireOverdue, finishGame, getGame, insertGame,
+  activeGameFor, claimGames, claimLease, commitMove, expireOverdue, finishGame, getGame, getGameSnapshot, insertGame,
   listGames, listGamesFor, listMoves, recordAttempt, renewLease, tallyFor,
 } from "./games";
 import { deleteModel, listModelRows, upsertModel } from "./models";
@@ -71,6 +71,32 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("createPostgresDb", () => {
 });
 
 describe("games", () => {
+  it("refuses an AI ending from a replaced lease at the same ply", async () => {
+    const game = makeGame();
+    await insertGame(db, game);
+    await claimLease(db, game.id, 0, NOON, NOON + 1_000);
+    await claimLease(db, game.id, 0, NOON + 1_000, NOON + 2_000);
+    expect(await finishGame(db, game.id, { status: "aborted", result: null, reason: "provider_error" }, {
+      expectedPly: 0, expectedLeaseUntil: NOON + 1_000,
+    })).toBe(false);
+    expect((await getGame(db, game.id))?.status).toBe("active");
+  });
+
+  it("round-trips individual milliseconds and returns clocks with their move snapshot", async () => {
+    const game = makeGame({ turnStartedAt: NOON + 1_237, whiteMs: 598_763 });
+    await insertGame(db, game);
+    expect(await getGameSnapshot(db, game.id)).toEqual({ game, moves: [] });
+    const move = { ...E4, spentMs: 37 };
+    await commitMove(db, {
+      gameId: game.id, expectedPly: 0, move,
+      whiteMs: 608_726, blackMs: game.blackMs, now: NOON + 1_274,
+    });
+    expect(await getGameSnapshot(db, game.id)).toMatchObject({
+      game: { ply: 1, fen: E4.fenAfter, whiteMs: 608_726, turnStartedAt: NOON + 1_274 },
+      moves: [{ ...move, ply: 0 }],
+    });
+  });
+
   it("round-trips a game", async () => {
     const game = makeGame({ effort: "high" });
     await insertGame(db, game);

@@ -42,36 +42,51 @@ function loseOnTime(deps: Deps, game: Game, mover: Color): Promise<boolean> {
   return finishGame(deps.db, game.id, ending, { expectedPly: game.ply, ...zeroClock(mover) });
 }
 
-function forfeit(deps: Deps, game: Game, mover: Color): Promise<boolean> {
+function forfeit(deps: Deps, game: Game, mover: Color, lease: number): Promise<boolean> {
   const ending = { status: "finished", result: opposite(mover), reason: "illegal_move" } as const;
-  return finishGame(deps.db, game.id, ending, { expectedPly: game.ply });
+  const leftMs = Math.max(0, remainingMs(game, mover, deps.now()));
+  if (leftMs === 0) return loseOnTime(deps, game, mover);
+  return finishGame(deps.db, game.id, ending, {
+    expectedPly: game.ply,
+    expectedLeaseUntil: lease,
+    ...(mover === "white" ? { whiteMs: leftMs } : { blackMs: leftMs }),
+  });
 }
 
-function abort(deps: Deps, game: Game): Promise<boolean> {
+function abort(deps: Deps, game: Game, lease: number): Promise<boolean> {
   const ending = { status: "aborted", result: null, reason: "provider_error" } as const;
-  return finishGame(deps.db, game.id, ending, { expectedPly: game.ply });
+  const mover = turnAt(game.ply);
+  const leftMs = Math.max(0, remainingMs(game, mover, deps.now()));
+  if (leftMs === 0) return loseOnTime(deps, game, mover);
+  return finishGame(deps.db, game.id, ending, {
+    expectedPly: game.ply,
+    expectedLeaseUntil: lease,
+    ...(mover === "white" ? { whiteMs: leftMs } : { blackMs: leftMs }),
+  });
 }
 
-type Ask = { history: string[]; rejected?: string; leftMs: number; refresh: boolean };
+type Ask = { history: string[]; rejected?: string; refresh: boolean };
 
 const NOT_CONNECTED = "not connected";
 
 /** Asks the model for one move. Anything that stops it answering is a provider error. */
-async function ask(deps: Deps, seat: Seat, a: Ask): Promise<MoveResult> {
+async function ask(deps: Deps, seat: Game, a: Ask): Promise<MoveResult | { kind: "expired" }> {
   try {
     const adapter = await deps.adapterFor(seat, { refresh: a.refresh });
     if (!adapter) return { kind: "provider_error", message: NOT_CONNECTED };
     const position = replay(a.history);
+    const leftMs = remainingMs(seat, position.turn, deps.now());
+    if (leftMs <= 0) return { kind: "expired" };
     return await adapter({
       fen: position.fen,
       history: a.history,
       legalMoves: position.legal,
       color: position.turn,
-      remainingMs: a.leftMs,
+      remainingMs: leftMs,
       model: seat.model,
       ...(seat.effort ? { effort: seat.effort } : {}),
       ...(a.rejected === undefined ? {} : { rejected: a.rejected }),
-      signal: AbortSignal.timeout(callTimeoutMs(a.leftMs, seat.provider)),
+      signal: AbortSignal.timeout(callTimeoutMs(leftMs, seat.provider)),
     });
   } catch {
     return { kind: "provider_error", message: "adapter failed" };
@@ -95,11 +110,13 @@ async function noteUsage(deps: Deps, seat: Seat, result: MoveResult): Promise<vo
 }
 
 /** Saves the model's move, unless its clock ran out while it was thinking. */
-async function play(deps: Deps, game: Game, mover: Color, history: string[], san: string): Promise<void> {
+async function play(
+  deps: Deps, game: Game, mover: Color, history: string[], san: string, lease: number, arrivedAt: number,
+): Promise<void> {
   const applied = applyMove(history, san);
   if (!applied) return;
   const now = deps.now();
-  const charge = chargeMove(clockOf(game, mover), game.turnStartedAt, now, game.incrementMs);
+  const charge = chargeMove(clockOf(game, mover), game.turnStartedAt, arrivedAt, game.incrementMs);
   if (charge.flagged) {
     await loseOnTime(deps, game, mover);
     return;
@@ -107,6 +124,7 @@ async function play(deps: Deps, game: Game, mover: Color, history: string[], san
   await commitMove(deps.db, {
     gameId: game.id,
     expectedPly: game.ply,
+    expectedLeaseUntil: lease,
     move: { san: applied.san, uci: applied.uci, fenAfter: applied.fen, spentMs: charge.spentMs },
     whiteMs: mover === "white" ? charge.nextMs : game.whiteMs,
     blackMs: mover === "black" ? charge.nextMs : game.blackMs,
@@ -156,24 +174,27 @@ export async function runAiTurn(
       if (!(await renewLease(deps.db, game.id, game.ply, lease, next)) || !roomForCall) return;
       lease = next;
     }
-    const result = await ask(deps, game, { history, rejected, leftMs, refresh });
+    const result = await ask(deps, game, { history, rejected, refresh });
+    if (result.kind === "expired") return void (await loseOnTime(deps, game, mover));
     if (result.kind === "move") {
+      const arrivedAt = deps.now();
       // Counted while the move is saved, not before it: the count is not something the player should wait for.
-      await Promise.all([play(deps, game, mover, history, result.san), noteUsage(deps, game, result)]);
+      await Promise.all([play(deps, game, mover, history, result.san, lease, arrivedAt), noteUsage(deps, game, result)]);
       return;
     }
     await noteUsage(deps, game, result);
+    if (remainingMs(game, mover, deps.now()) <= 0) return void (await loseOnTime(deps, game, mover));
 
     const why = result.kind === "provider_error" ? result.message : null;
     const counts = await recordAttempt(deps.db, game.id, game.ply, lease, result.kind, why);
     if (!counts) return; // another runner has the turn, or the game is over
     if (result.kind === "invalid") {
       rejected = result.raw;
-      if (counts.invalid >= MAX_INVALID_REPLIES) return void (await forfeit(deps, game, mover));
+      if (counts.invalid >= MAX_INVALID_REPLIES) return void (await forfeit(deps, game, mover, lease));
       continue;
     }
     refresh = result.message === "HTTP 401";
     const clockLeft = remainingMs(game, mover, deps.now()) > 0;
-    if (counts.failures >= MAX_PROVIDER_FAILURES && clockLeft) return void (await abort(deps, game));
+    if (counts.failures >= MAX_PROVIDER_FAILURES && clockLeft) return void (await abort(deps, game, lease));
   }
 }

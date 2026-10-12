@@ -14,17 +14,14 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 
-/** A clock face: "10:00", "1:02:05", and tenths once under ten seconds. */
+/** A clock face with milliseconds. A positive fraction never displays as zero. */
 export function formatClock(ms: number): string {
-  const safe = Math.max(0, ms);
-  if (safe < 10_000) {
-    const tenths = Math.floor(safe / 100);
-    return `0:${pad(Math.floor(tenths / 10))}.${tenths % 10}`;
-  }
-  const seconds = Math.ceil(safe / 1000);
+  const safe = Math.max(0, Math.ceil(ms));
+  const seconds = Math.floor(safe / 1000);
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds % 60)}` : `${minutes}:${pad(seconds % 60)}`;
+  const whole = hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds % 60)}` : `${minutes}:${pad(seconds % 60)}`;
+  return `${whole}.${String(safe % 1000).padStart(3, "0")}`;
 }
 
 const REASON_LABELS: Record<Reason, string> = {

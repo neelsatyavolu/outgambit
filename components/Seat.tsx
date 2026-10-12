@@ -1,7 +1,6 @@
-import { formatClock } from "@/lib/format";
+import { GameClock } from "./GameClock";
 
 const GLYPHS: Record<string, string> = { q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
-const LOW_MS = 20_000;
 
 /**
  * One side of the board: who it is, what they have captured, how far ahead
@@ -17,8 +16,8 @@ export function Seat(props: {
   lead: number;
   ms: number;
   running: boolean;
+  at: number;
 }) {
-  const classes = ["clock", props.running ? "running" : "", props.running && props.ms < LOW_MS ? "low" : ""];
   const ahead = props.lead > 0;
   return (
     <div className={`seat ${props.place}`}>
@@ -30,9 +29,7 @@ export function Seat(props: {
           {ahead && <span className="lead num">+{props.lead}</span>}
         </span>
       </div>
-      <div className={classes.filter(Boolean).join(" ")} role="timer">
-        {formatClock(props.ms)}
-      </div>
+      <GameClock ms={props.ms} running={props.running} at={props.at} />
     </div>
   );
 }

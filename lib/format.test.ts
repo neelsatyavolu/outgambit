@@ -17,27 +17,29 @@ describe("outcomeText", () => {
 });
 
 describe("formatClock", () => {
-  it("shows minutes and seconds", () => {
-    expect(formatClock(600_000)).toBe("10:00");
-    expect(formatClock(65_000)).toBe("1:05");
+  it("shows minutes, seconds and milliseconds", () => {
+    expect(formatClock(600_000)).toBe("10:00.000");
+    expect(formatClock(65_237)).toBe("1:05.237");
   });
 
-  it("rounds up to the next second, so a clock never shows 0:00 with time left", () => {
-    expect(formatClock(59_001)).toBe("1:00");
-    expect(formatClock(10_000)).toBe("0:10");
+  it("preserves the last millisecond and second boundaries", () => {
+    expect(formatClock(59_001)).toBe("0:59.001");
+    expect(formatClock(10_000)).toBe("0:10.000");
+    expect(formatClock(1)).toBe("0:00.001");
+    expect(formatClock(0.1)).toBe("0:00.001");
   });
 
-  it("shows tenths under ten seconds", () => {
-    expect(formatClock(9_940)).toBe("0:09.9");
-    expect(formatClock(450)).toBe("0:00.4");
+  it("keeps all three digits under ten seconds", () => {
+    expect(formatClock(9_940)).toBe("0:09.940");
+    expect(formatClock(450)).toBe("0:00.450");
   });
 
   it("shows hours when there are any", () => {
-    expect(formatClock(3_725_000)).toBe("1:02:05");
+    expect(formatClock(3_725_019)).toBe("1:02:05.019");
   });
 
   it("never goes below zero", () => {
-    expect(formatClock(-500)).toBe("0:00.0");
+    expect(formatClock(-500)).toBe("0:00.000");
   });
 });
 

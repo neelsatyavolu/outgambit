@@ -63,6 +63,20 @@ export async function getGame(q: Queryable, id: string): Promise<Game | null> {
   return rows[0] ? rowToGame(rows[0]) : null;
 }
 
+/** The position, clocks and move list from the same database snapshot. */
+export async function getGameSnapshot(q: Queryable, id: string, lock = false): Promise<{ game: Game; moves: Move[] } | null> {
+  if (!UUID.test(id)) return null;
+  const rows = await q.query(
+    `SELECT games.*, COALESCE((
+       SELECT jsonb_agg(jsonb_build_object('ply', ply, 'san', san, 'uci', uci,
+         'fenAfter', fen_after, 'spentMs', spent_ms) ORDER BY ply)
+       FROM moves WHERE game_id = games.id
+     ), '[]'::jsonb) AS moves FROM games WHERE id = $1${lock ? " FOR UPDATE" : ""}`,
+    [id],
+  );
+  return rows[0] ? { game: rowToGame(rows[0]), moves: rows[0].moves as Move[] } : null;
+}
+
 export async function listMoves(q: Queryable, gameId: string): Promise<Move[]> {
   if (!UUID.test(gameId)) return [];
   const rows = await q.query("SELECT ply, san, uci, fen_after, spent_ms FROM moves WHERE game_id = $1 ORDER BY ply", [
@@ -136,6 +150,8 @@ export type MoveCommit = {
   gameId: string;
   /** The ply this move is for. The commit is refused if the game has moved on. */
   expectedPly: number;
+  /** AI runners must still own the lease when their move is saved. */
+  expectedLeaseUntil?: number;
   move: Omit<Move, "ply">;
   whiteMs: number;
   blackMs: number;
@@ -153,22 +169,24 @@ export async function commitMove(q: Queryable, c: MoveCommit): Promise<boolean> 
     `WITH advanced AS (
        UPDATE games SET fen = $3, ply = ply + 1, white_ms = $4, black_ms = $5, turn_started_at = $6,
               ai_lease_until = NULL, ai_invalid = 0, ai_failures = 0, status = $7, result = $8, reason = $9
-        WHERE id = $1 AND ply = $2 AND status = 'active' RETURNING id
+         WHERE id = $1 AND ply = $2 AND status = 'active'
+           AND ($13::timestamptz IS NULL OR ai_lease_until = $13) RETURNING id
      )
      INSERT INTO moves (game_id, ply, san, uci, fen_after, spent_ms, created_at)
      SELECT id, $2, $10::text, $11::text, $3, $12::int, $6 FROM advanced RETURNING ply`,
     [
       c.gameId, c.expectedPly, c.move.fenAfter, c.whiteMs, c.blackMs, toTs(c.now),
       c.finish?.status ?? "active", c.finish?.result ?? null, c.finish?.reason ?? null,
-      c.move.san, c.move.uci, c.move.spentMs,
+      c.move.san, c.move.uci, c.move.spentMs, toTsOrNull(c.expectedLeaseUntil ?? null),
     ],
   );
   return saved.length > 0;
 }
 
 export type FinishGuard = {
-  /** Refuse if the game is no longer at this ply. Everything but a resignation passes it. */
+  /** Refuse if the game is no longer at this ply. */
   expectedPly?: number;
+  expectedLeaseUntil?: number;
   whiteMs?: number;
   blackMs?: number;
 };
@@ -178,10 +196,12 @@ export async function finishGame(q: Queryable, id: string, ending: Ending, guard
   const rows = await q.query(
     `UPDATE games SET status = $2, result = $3, reason = $4, ai_lease_until = NULL,
             white_ms = COALESCE($5, white_ms), black_ms = COALESCE($6, black_ms)
-      WHERE id = $1 AND status = 'active' AND ($7::int IS NULL OR ply = $7) RETURNING id`,
+      WHERE id = $1 AND status = 'active' AND ($7::int IS NULL OR ply = $7)
+        AND ($8::timestamptz IS NULL OR ai_lease_until = $8) RETURNING id`,
     [
       id, ending.status, ending.result, ending.reason, guard.whiteMs ?? null, guard.blackMs ?? null,
       guard.expectedPly ?? null,
+      toTsOrNull(guard.expectedLeaseUntil ?? null),
     ],
   );
   return rows.length > 0;

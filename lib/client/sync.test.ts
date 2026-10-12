@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameView } from "../game/types";
-import { isStale, shownFen } from "./sync";
+import { FAST_POLL_MS, isStale, pollIntervalMs, shownFen, SLOW_POLL_MS } from "./sync";
 
 const view = (moves: number, status: GameView["status"] = "active"): GameView =>
   ({
@@ -23,6 +23,21 @@ describe("isStale", () => {
   it("rejects a view that would bring a finished game back to life", () => {
     expect(isStale(view(4, "finished"), view(4, "active"))).toBe(true);
     expect(isStale(view(4, "active"), view(4, "finished"))).toBe(false);
+  });
+
+  it("rejects an older clock reading even when the board has not changed", () => {
+    expect(isStale({ ...view(2), serverNow: 1_237 }, { ...view(2), serverNow: 1_236 })).toBe(true);
+    expect(isStale({ ...view(2), serverNow: 1_237 }, { ...view(2), serverNow: 1_238 })).toBe(false);
+  });
+});
+
+describe("pollIntervalMs", () => {
+  it("asks often only while a quick opponent is to move", () => {
+    expect(pollIntervalMs("1+0", true)).toBe(FAST_POLL_MS);
+    expect(pollIntervalMs("5+0", true)).toBe(FAST_POLL_MS);
+    expect(pollIntervalMs("1+0", false)).toBe(SLOW_POLL_MS);
+    expect(pollIntervalMs("20+20", true)).toBe(SLOW_POLL_MS);
+    expect(pollIntervalMs(undefined, true)).toBe(SLOW_POLL_MS);
   });
 });
 

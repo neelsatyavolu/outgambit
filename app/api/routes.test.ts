@@ -191,6 +191,46 @@ describe("player routes", () => {
     expect((await response.json()).data.moves.map((m: { san: string }) => m.san)).toEqual(["e4", "e5"]);
   });
 
+  it("validates the account on the move transaction after locking the game", async () => {
+    const gameId = await startGame("198.51.100.131");
+    const db = await (await import("@/lib/db/client")).getDb();
+    const query = db.query;
+    const transact = db.transaction;
+    let active = false;
+    let locked = false;
+    let authenticated = false;
+    const rootRead = vi.spyOn(db, "query").mockImplementation((sql, values) => {
+      // A pool read while holding a transaction can deadlock a saturated pool.
+      expect(active).toBe(false);
+      return query(sql, values);
+    });
+    const transaction = vi.spyOn(db, "transaction").mockImplementation(async (fn) => {
+      active = true;
+      try {
+        return await transact((tx) => fn({
+          query: async <T>(sql: string, values?: unknown[]) => {
+            const rows = await tx.query<T>(sql, values);
+            if (sql.includes("FOR UPDATE")) locked = true;
+            if (sql.includes("SELECT session_version")) {
+              expect(locked).toBe(true);
+              authenticated = true;
+            }
+            return rows;
+          },
+        }));
+      } finally {
+        active = false;
+      }
+    });
+    try {
+      expect((await move(gameId, { move: "e2e4", ply: 0 })).status).toBe(200);
+      expect(authenticated).toBe(true);
+    } finally {
+      transaction.mockRestore();
+      rootRead.mockRestore();
+    }
+  });
+
   it("rejects a move that is malformed or not sent as JSON", async () => {
     const gameId = await startGame("198.51.100.32");
     expect((await move(gameId, { move: "e2e4; DROP TABLE games", ply: 0 })).status).toBe(400);

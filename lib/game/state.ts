@@ -1,5 +1,5 @@
 import { remainingMs } from "../chess/clock";
-import { finishGame, getGame, listMoves } from "../db/games";
+import { finishGame, getGame, getGameSnapshot } from "../db/games";
 import { poolOf } from "../rating/elo";
 import { settleRatings } from "../rating/settle";
 import { runAiTurn } from "./ai-turn";
@@ -39,11 +39,15 @@ async function rated(deps: Deps, game: Game): Promise<Game> {
 }
 
 /** The game as a browser may see it, or null if this viewer may not. */
-export async function getGameView(deps: Deps, gameId: string, viewer: Viewer): Promise<GameView | null> {
-  const found = await getGame(deps.db, gameId);
+export async function getGameView(deps: Deps, gameId: string, viewer: Viewer, receivedAt?: number): Promise<GameView | null> {
+  let snapshot = await getGameSnapshot(deps.db, gameId);
+  const found = snapshot?.game;
   if (!found || !canSee(found, viewer)) return null;
+  const refreshed = await rated(deps, await keepAlive(deps, found, deps.now()));
+  if (refreshed !== found) snapshot = await getGameSnapshot(deps.db, gameId);
+  if (!snapshot) return null;
+  const game = snapshot.game;
   const now = deps.now();
-  const game = await rated(deps, await keepAlive(deps, found, now));
   return {
     id: game.id,
     status: game.status,
@@ -57,10 +61,11 @@ export async function getGameView(deps: Deps, gameId: string, viewer: Viewer): P
     timeControl: game.timeControl,
     fen: game.fen,
     turn: turnAt(game.ply),
-    moves: await listMoves(deps.db, game.id),
+    moves: snapshot.moves,
     whiteMs: Math.max(0, remainingMs(game, "white", now)),
     blackMs: Math.max(0, remainingMs(game, "black", now)),
     serverNow: now,
+    ...(receivedAt === undefined ? {} : { serverReceivedAt: receivedAt }),
     createdAt: game.createdAt,
     pool: poolOf(game.timeControl),
     rating: game.rating,

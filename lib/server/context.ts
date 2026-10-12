@@ -6,7 +6,7 @@ import { accountIn } from "../account/accounts";
 import { ACCOUNT_COOKIE, ACCOUNT_TTL_MS, accountPlayerId, createAccountSession } from "../account/session";
 import { getAdapter } from "../ai/registry";
 import { usageSource } from "../budget/sources";
-import { getDb } from "../db/client";
+import { getDb, type Queryable } from "../db/client";
 import { sessionVersionOf } from "../db/users";
 import type { Deps } from "../game/deps";
 import { clientIp, fail, hashIp, isPlayerId, sameOrigin } from "../http";
@@ -44,8 +44,8 @@ export async function buildDeps(): Promise<Deps> {
 }
 
 /** The account a session cookie is live for. A browser with no cookie costs no database read. */
-async function accountBehind(token: string | undefined): Promise<string | null> {
-  return token ? accountIn(await getDb(), token, Date.now()) : null;
+async function accountBehind(token: string | undefined, q?: Queryable): Promise<string | null> {
+  return token ? accountIn(q ?? await getDb(), token, Date.now()) : null;
 }
 
 /** The signed-in account's user id, or null for a guest. */
@@ -81,9 +81,9 @@ export type Visitor = { userId: string | null; playerId: string | undefined };
  * `create` issues an anonymous id if they have neither. The session is read
  * once here, where asking for the account and the player apart reads it twice.
  */
-export async function visitor(options: { create: boolean }): Promise<Visitor> {
+export async function visitor(options: { create: boolean }, q?: Queryable): Promise<Visitor> {
   const jar = await cookies();
-  const userId = await accountBehind(jar.get(ACCOUNT_COOKIE)?.value);
+  const userId = await accountBehind(jar.get(ACCOUNT_COOKIE)?.value, q);
   if (userId) return { userId, playerId: accountPlayerId(userId) };
   const existing = jar.get(PLAYER_COOKIE)?.value;
   if (isPlayerId(existing)) return { userId, playerId: existing };
@@ -100,8 +100,8 @@ export async function visitor(options: { create: boolean }): Promise<Visitor> {
 }
 
 /** The id this visitor plays under. See `visitor`. */
-export async function playerId(options: { create: boolean }): Promise<string | undefined> {
-  return (await visitor(options)).playerId;
+export async function playerId(options: { create: boolean }, q?: Queryable): Promise<string | undefined> {
+  return (await visitor(options, q)).playerId;
 }
 
 export const ipHashOf = (request: Request): string => hashIp(clientIp(request));

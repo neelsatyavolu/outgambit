@@ -82,6 +82,7 @@ export async function createGame(deps: Deps, input: CreateInput): Promise<Create
     if (active) return { ok: false, error: "active_game", activeGameId: active.id };
     const blocked = supply && allowance(supply, await loadDemand(tx, input, now))?.blocked;
     if (blocked) return { ok: false, error: "no_games_left", blocked };
+    game.turnStartedAt = deps.now();
     await insertGame(tx, game);
     return null;
   });

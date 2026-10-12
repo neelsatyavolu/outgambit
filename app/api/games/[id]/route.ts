@@ -6,9 +6,10 @@ import { buildDeps, isOwner, playerId } from "@/lib/server/context";
 export const maxDuration = 300;
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const receivedAt = Date.now();
   const { id } = await params;
   const deps = await buildDeps();
   const viewer = { playerId: await playerId({ create: false }), owner: await isOwner() };
-  const view = await getGameView(deps, id, viewer);
+  const view = await getGameView(deps, id, viewer, receivedAt);
   return view ? ok(view) : fail("Game not found.", 404);
 }

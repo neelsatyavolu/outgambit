@@ -93,6 +93,18 @@ was too slow for a timed game and is no longer offered. Grok 4.7 and 4.6 play
 at low only, since medium took them a minute or more over a hard move
 (`effortsFor` in `lib/config.ts`).
 
+Clocks and recorded move times retain integer milliseconds. A player's clock
+stops when the server has received the complete valid move request, before
+authentication and database reads; the next turn begins once the move is
+validated. The model's clock includes scheduling, credentials, thinking and
+retries. A move at exactly zero time loses, without receiving an increment.
+
+The browser shows three millisecond digits and uses a monotonic clock between
+server readings. Synchronization estimates network delay separately from server
+processing and ignores older clock snapshots. Display updates follow screen
+refreshes; network asymmetry means the display cannot guarantee agreement with
+the server to within 1 ms. The server decides timeouts.
+
 ## Accounts and ratings
 
 Playing needs an account. Sign-up asks for a level or chess.com ratings, which

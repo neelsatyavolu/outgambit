@@ -1,10 +1,11 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetDb, testDb } from "@/test/db";
 import { NOON } from "@/test/factory";
 import { harness, input, type Reply } from "@/test/game";
 import type { Db } from "../db/client";
 import { getGame, listMoves } from "../db/games";
 import { gameCounts, usageSince } from "../db/usage";
+import * as rules from "../chess/rules";
 import { callTimeoutMs, runAiTurn } from "./ai-turn";
 import { createGame } from "./create";
 import { dayKey } from "./limits";
@@ -30,6 +31,28 @@ async function afterE4(replies: Reply[], overrides = {}) {
 }
 
 describe("runAiTurn", () => {
+  it("charges a valid model reply to arrival, excluding server move validation", async () => {
+    const { h, id } = await afterE4([(_request, clock) => {
+      clock.now = NOON + 599_999;
+      return { kind: "move", san: "e5" };
+    }]);
+    const apply = rules.applyMove;
+    const validation = vi.spyOn(rules, "applyMove").mockImplementation((...args) => {
+      const applied = apply(...args);
+      h.clock.now += 37;
+      return applied;
+    });
+    try {
+      await h.runJobs();
+    } finally {
+      validation.mockRestore();
+    }
+    expect(await getGame(db, id)).toMatchObject({
+      status: "active", ply: 2, blackMs: 10_001, turnStartedAt: NOON + 600_036,
+    });
+    expect((await listMoves(db, id))[1].spentMs).toBe(599_999);
+  });
+
   it("asks the model with the position, effort and time left, then plays its move", async () => {
     const { h, id } = await afterE4(["e5"]);
     h.clock.now = NOON + 20_000;
@@ -91,6 +114,50 @@ describe("runAiTurn", () => {
     expect(await getGame(db, id)).toMatchObject({ status: "aborted", reason: "provider_error" });
   });
 
+  it("refreshes the request clock after loading credentials", async () => {
+    const { h, id } = await afterE4(["e5"]);
+    const adapterFor = h.deps.adapterFor;
+    h.deps.adapterFor = async (...args) => {
+      h.clock.now += 1_237;
+      return adapterFor(...args);
+    };
+    await h.runJobs();
+    expect(h.requests[0].remainingMs).toBe(598_763);
+    expect(await getGame(db, id)).toMatchObject({ blackMs: 608_763 });
+  });
+
+  it("does not call the model when credentials outlast the clock", async () => {
+    const { h, id } = await afterE4(["e5"]);
+    const adapterFor = h.deps.adapterFor;
+    h.deps.adapterFor = async (...args) => {
+      h.clock.now += 600_000;
+      return adapterFor(...args);
+    };
+    await h.runJobs();
+    expect(h.requests).toHaveLength(0);
+    expect(await getGame(db, id)).toMatchObject({ reason: "timeout", blackMs: 0 });
+  });
+
+  it("gives timeout precedence over the last invalid reply", async () => {
+    const lateInvalid: Reply = (_request, clock) => {
+      clock.now += 600_000;
+      return invalid("late");
+    };
+    const { h, id } = await afterE4([invalid("a"), invalid("b"), lateInvalid]);
+    await h.runJobs();
+    expect(await getGame(db, id)).toMatchObject({ reason: "timeout", blackMs: 0 });
+  });
+
+  it("freezes elapsed time when provider errors abort the game", async () => {
+    const timedFailure: Reply = (_request, clock) => {
+      clock.now += 1_237;
+      return failure;
+    };
+    const { h, id } = await afterE4([timedFailure]);
+    await h.runJobs();
+    expect(await getGame(db, id)).toMatchObject({ status: "aborted", blackMs: 597_526 });
+  });
+
   it("loses on time when the call outlasts the AI's clock", async () => {
     const slow: Reply = (_request, clock) => {
       clock.now += 601_000;
@@ -109,6 +176,18 @@ describe("runAiTurn", () => {
     const { h, id } = await afterE4([late]);
     await h.runJobs();
     expect(await getGame(db, id)).toMatchObject({ status: "finished", result: "white", reason: "timeout", ply: 1 });
+  });
+
+  it.each([599_999, 600_000])("enforces the AI deadline at %i elapsed milliseconds", async (elapsed) => {
+    const reply: Reply = (_request, clock) => {
+      clock.now += elapsed;
+      return { kind: "move", san: "e5" };
+    };
+    const { h, id } = await afterE4([reply]);
+    await h.runJobs();
+    expect(await getGame(db, id)).toMatchObject(elapsed === 599_999
+      ? { ply: 2, status: "active", blackMs: 10_001 }
+      : { ply: 1, status: "finished", reason: "timeout", blackMs: 0 });
   });
 
   it("caps one call at 240 seconds, or at the time left when that is less", () => {
@@ -162,6 +241,28 @@ describe("runAiTurn", () => {
     await first;
     expect(await getGame(db, id)).toMatchObject({ status: "active", ply: 2 });
     expect(h.requests).toHaveLength(2);
+  });
+
+  it("refuses a valid move from an expired runner while its replacement holds the same ply", async () => {
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const firstGate = new Promise<void>((resolve) => (releaseFirst = resolve));
+    const secondGate = new Promise<void>((resolve) => (releaseSecond = resolve));
+    const { h, id } = await afterE4([
+      async () => (await firstGate, { kind: "move", san: "e5" }),
+      async () => (await secondGate, { kind: "move", san: "d5" }),
+    ]);
+    const first = h.jobs.shift()!();
+    while (h.requests.length < 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    h.clock.now += 400_000;
+    const second = runAiTurn(h.deps, id);
+    while (h.requests.length < 2) await new Promise((resolve) => setTimeout(resolve, 5));
+    releaseFirst();
+    await first;
+    expect((await getGame(db, id))?.ply).toBe(1);
+    releaseSecond();
+    await second;
+    expect((await listMoves(db, id)).map((move) => move.san)).toEqual(["e4", "d5"]);
   });
 
   it("holds the lease long enough for a token refresh plus a full call", async () => {

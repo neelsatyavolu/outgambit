@@ -22,16 +22,20 @@ const REFUSALS: Record<MoveError, { message: string; status: number }> = {
 };
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const receivedAt = Date.now();
   if (!sameOrigin(request)) return fail("Request refused.", 403);
   const { id } = await params;
   const body = await readBody(request, schema);
   if (!body) return fail("That is not a move.", 400);
-  const player = await playerId({ create: false });
-  if (!player) return fail("Game not found.", 404);
+  const arrivedAt = Date.now();
   const deps = await buildDeps();
-  const outcome = await playerMove(deps, id, player, body.move, body.ply);
+  let player: string | undefined;
+  const outcome = await playerMove(deps, id, async (tx) => {
+    player = await playerId({ create: false }, tx);
+    return player;
+  }, body.move, body.ply, arrivedAt);
   if (!outcome.ok) return fail(REFUSALS[outcome.error].message, REFUSALS[outcome.error].status);
   // Return the new state, which for a fast opponent already holds its reply.
-  const view = await getGameView(deps, id, { playerId: player, owner: false });
+  const view = await getGameView(deps, id, { playerId: player, owner: false }, receivedAt);
   return view ? ok(view) : fail("Game not found.", 404);
 }

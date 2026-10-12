@@ -75,6 +75,8 @@ export type GameView = {
   whiteMs: number;
   blackMs: number;
   serverNow: number;
+  /** When the API request arrived, for estimating transport delay independently of server work. */
+  serverReceivedAt?: number;
   createdAt: number;
   /** "bullet" or "regular": which ratings this game counts toward. */
   pool: "bullet" | "regular";

@@ -27,6 +27,24 @@ async function slowGame(replies: string[] = ["e5"]) {
 }
 
 describe("getGameView", () => {
+  it("stamps clocks after snapshot reads finish, retaining request arrival for synchronization", async () => {
+    const { h, id } = await slowGame();
+    const receivedAt = NOON + 1_237;
+    h.clock.now = receivedAt;
+    h.deps.db = {
+      ...db,
+      query: async <T>(sql: string, params?: unknown[]) => {
+        const rows = await db.query<T>(sql, params);
+        h.clock.now += 37;
+        return rows;
+      },
+    };
+    const view = await getGameView(h.deps, id, player, receivedAt);
+    expect(view).toMatchObject({
+      whiteMs: 600_000 - (h.clock.now - NOON), serverNow: h.clock.now, serverReceivedAt: receivedAt,
+    });
+  });
+
   it("shows the player their game with running clocks", async () => {
     const { h, id } = await slowGame();
     h.clock.now = NOON + 7_000;

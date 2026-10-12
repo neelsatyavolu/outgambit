@@ -1,7 +1,7 @@
 "use client";
 
 import { Chess, type Square } from "chess.js";
-import { useMemo, useState, type CSSProperties } from "react";
+import { memo, useMemo, useState, type CSSProperties } from "react";
 import { Chessboard, defaultPieces } from "react-chessboard";
 import { premoveTargets, premoveUci, withPremoves, type Placement } from "@/lib/chess/premove";
 import { promotionPlace } from "@/lib/chess/promotion";
@@ -34,6 +34,37 @@ const drawn = (placement: Placement) =>
     Object.entries(placement).map(([square, piece]) => [square, { pieceType: `${piece.color}${piece.type.toUpperCase()}` }]),
   );
 
+type BoardProps = {
+  fen: string;
+  orientation: Color;
+  /** Whether the viewer may move pieces right now. */
+  interactive: boolean;
+  /** Whether the viewer may queue moves for their coming turns right now. */
+  premovable: boolean;
+  /** The queued moves, drawn as if already played. */
+  premoves: readonly string[];
+  lastMove: { from: string; to: string } | null;
+  onMove: (uci: string) => void;
+  onPremove: (uci: string) => void;
+  onCancelPremoves: () => void;
+};
+
+/** Ignore a fresh last-move object when the squares have not changed, so clock polls do not redraw the pieces. */
+function sameBoard(prev: BoardProps, next: BoardProps): boolean {
+  return (
+    prev.fen === next.fen &&
+    prev.orientation === next.orientation &&
+    prev.interactive === next.interactive &&
+    prev.premovable === next.premovable &&
+    prev.premoves === next.premoves &&
+    prev.onMove === next.onMove &&
+    prev.onPremove === next.onPremove &&
+    prev.onCancelPremoves === next.onCancelPremoves &&
+    prev.lastMove?.from === next.lastMove?.from &&
+    prev.lastMove?.to === next.lastMove?.to
+  );
+}
+
 /** Legal destinations for each square, and the mover's king square when in check. */
 function analyse(fen: string) {
   const chess = new Chess(fen);
@@ -49,20 +80,7 @@ function analyse(fen: string) {
   return { targets, king, occupied };
 }
 
-export function Board(props: {
-  fen: string;
-  orientation: Color;
-  /** Whether the viewer may move pieces right now. */
-  interactive: boolean;
-  /** Whether the viewer may queue moves for their coming turns right now. */
-  premovable: boolean;
-  /** The queued moves, drawn as if already played. */
-  premoves: readonly string[];
-  lastMove: { from: string; to: string } | null;
-  onMove: (uci: string) => void;
-  onPremove: (uci: string) => void;
-  onCancelPremoves: () => void;
-}) {
+export const Board = memo(function Board(props: BoardProps) {
   const { fen, interactive, premovable, premoves, lastMove, onMove } = props;
   const mine = props.orientation === "white" ? "w" : "b";
   const [selected, setSelected] = useState<string | null>(null);
@@ -142,7 +160,10 @@ export function Board(props: {
             boardOrientation: props.orientation,
             allowDragging: interactive || premovable,
             allowDrawingArrows: false,
-            animationDurationInMs: 150,
+            // Snap. While a piece is animating, the board still treats it as
+            // sitting on the square it left, so the next grab in a bullet game misses.
+            showAnimations: false,
+            animationDurationInMs: 0,
             lightSquareStyle: { backgroundColor: "var(--square-light)" },
             darkSquareStyle: { backgroundColor: "var(--square-dark)" },
             lightSquareNotationStyle: { color: "var(--square-dark)" },
@@ -164,7 +185,7 @@ export function Board(props: {
       </div>
     </div>
   );
-}
+}, sameBoard);
 
 /** The pieces a pawn may become, stacked on its file from the square it promotes on. A click elsewhere on the board calls it off. */
 function Promotion(props: { pending: Pending; orientation: Color; onMove: (uci: string) => void; onClose: () => void }) {

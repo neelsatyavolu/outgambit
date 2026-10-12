@@ -2,11 +2,12 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { counting, resetDb, testDb } from "@/test/db";
 import { NOON } from "@/test/factory";
 import { harness, input } from "@/test/game";
-import type { Db } from "../db/client";
+import type { Db, Queryable, Row } from "../db/client";
 import { getGame, listMoves } from "../db/games";
 import { usageSince } from "../db/usage";
 import { createGame } from "./create";
 import { playerMove, resign } from "./move";
+import { getGameView } from "./state";
 
 let db: Db;
 beforeAll(async () => {
@@ -21,6 +22,126 @@ async function start(h: ReturnType<typeof harness>, overrides = {}) {
 }
 
 describe("playerMove", () => {
+  it("keeps a move received before the deadline ahead of a timeout poll during validation", async () => {
+    const h = harness(db);
+    const id = await start(h, { timeControl: "1+0" });
+    let read!: () => void;
+    const readStarted = new Promise<void>((resolve) => { read = resolve; });
+    let release!: () => void;
+    const validation = new Promise<void>((resolve) => { release = resolve; });
+    let paused = false;
+    const delayRead = (query: Db["query"]): Db["query"] => async <T>(sql: string, params?: unknown[]) => {
+      const rows = await query<T>(sql, params);
+      if (!paused && sql.includes("FROM games WHERE id = $1")) {
+        paused = true;
+        read();
+        await validation;
+      }
+      return rows;
+    };
+    h.deps.db = {
+      query: delayRead(db.query),
+      transaction: (fn) => db.transaction((tx) => fn({ query: delayRead(tx.query) })),
+    };
+    h.clock.now = NOON + 59_999;
+    const move = playerMove(h.deps, id, "player-1", "e2e4", 0);
+    await readStarted;
+    h.clock.now = NOON + 60_001;
+    const poll = getGameView(h.deps, id, { playerId: "player-1", owner: false });
+    // A held transaction blocks the poll on PGlite; PostgreSQL instead blocks
+    // its timeout UPDATE on the locked row. Neither may overtake the move.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    release();
+    expect(await move).toEqual({ ok: true });
+    await poll;
+    expect((await listMoves(db, id))[0]).toMatchObject({ san: "e4", spentMs: 59_999 });
+    expect(await getGame(db, id)).toMatchObject({ status: "active", whiteMs: 1 });
+  });
+
+  it("charges to move arrival, excluding database reads from the player's clock", async () => {
+    const h = harness(db, ["e5"]);
+    const id = await start(h, { provider: "codex", model: "gpt-a", effort: "low" });
+    h.clock.now = NOON + 599_999;
+    h.deps.db = {
+      ...db,
+      transaction: (fn) => db.transaction((tx) => fn({
+        query: async <T>(sql: string, params?: unknown[]) => {
+          const rows = await tx.query<T>(sql, params);
+          h.clock.now += 37;
+          return rows;
+        },
+      })),
+    };
+    expect(await playerMove(h.deps, id, "player-1", "e2e4", 0)).toEqual({ ok: true });
+    expect(await getGame(db, id)).toMatchObject({ whiteMs: 10_001, turnStartedAt: NOON + 600_036 });
+    expect((await listMoves(db, id))[0].spentMs).toBe(599_999);
+  });
+
+  it("resolves identity on the locked transaction and releases it before AI work", async () => {
+    const h = harness(db, ["e5"]);
+    const id = await start(h);
+    let locked = false;
+    let active = false;
+    h.deps.db = {
+      query: async <T>(sql: string, params?: unknown[]) => {
+        expect(active).toBe(false);
+        return db.query<T>(sql, params);
+      },
+      transaction: async (fn) => {
+        active = true;
+        try {
+          return await db.transaction((tx) => fn({
+            query: async <T>(sql: string, params?: unknown[]) => {
+              const rows = await tx.query<T>(sql, params);
+              if (sql.includes("FOR UPDATE")) locked = true;
+              return rows;
+            },
+          }));
+        } finally {
+          active = false;
+        }
+      },
+    };
+    h.clock.now += 599_999;
+    const resolvePlayer = async (tx: Queryable) => {
+      expect(locked).toBe(true);
+      expect(await tx.query("SELECT 1 AS authenticated")).toEqual([{ authenticated: 1 }]);
+      h.clock.now += 123;
+      return "player-1";
+    };
+    expect(await playerMove(h.deps, id, resolvePlayer, "e2e4", 0)).toEqual({ ok: true });
+    expect(await getGame(db, id)).toMatchObject({ whiteMs: 10_001, ply: 2 });
+    expect(h.requests).toHaveLength(1);
+  });
+
+  it("freezes the running clock at resignation", async () => {
+    const h = harness(db);
+    const id = await start(h);
+    h.clock.now += 1_237;
+    await resign(h.deps, id, "player-1");
+    expect(await getGame(db, id)).toMatchObject({ whiteMs: 598_763, blackMs: 600_000 });
+  });
+
+  it.each(["white", "black"] as const)("records %s's timeout if resignation arrives after its deadline", async (mover) => {
+    const h = harness(db);
+    const id = await start(h, { provider: "codex", model: "gpt-a", effort: "low" });
+    if (mover === "black") await playerMove(h.deps, id, "player-1", "e2e4", 0);
+    h.clock.now = NOON + 600_000;
+    expect(await resign(h.deps, id, "player-1")).toBe(true);
+    expect(await getGame(db, id)).toMatchObject({
+      reason: "timeout", result: mover === "white" ? "black" : "white",
+      ...(mover === "white" ? { whiteMs: 0 } : { blackMs: 0 }),
+    });
+  });
+
+  it("flags a human move at the exact millisecond deadline", async () => {
+    const h = harness(db);
+    const id = await start(h, { timeControl: "1+0" });
+    h.clock.now = NOON + 60_000;
+    expect(await playerMove(h.deps, id, "player-1", "e2e4", 0)).toEqual({ ok: false, error: "out_of_time" });
+    expect(await getGame(db, id)).toMatchObject({ reason: "timeout", whiteMs: 0 });
+  });
+
   it("plays the move, charges the clock, and lets a fast AI answer in the same call", async () => {
     const h = harness(db, ["e5"]);
     const id = await start(h, { timeControl: "2+1" });
@@ -117,25 +238,30 @@ describe("playerMove", () => {
   });
 
   // Every trip is a few milliseconds the player waits for the reply in a one-minute game.
-  it("plays the move and a fast opponent's paid reply in six trips to the database", async () => {
+  it("plays the move and a fast opponent's paid reply in seven trips to the database", async () => {
     const counted = counting(db);
     const h = harness(counted.db, ["e5"]);
     const id = await start(h, { provider: "jev", model: "jev-latest", timeControl: "1+0" });
     const before = counted.trips();
     expect(await playerMove(h.deps, id, "player-1", "e2e4", 0)).toEqual({ ok: true });
-    expect(counted.trips() - before).toBeLessThanOrEqual(6);
+    // BEGIN/COMMIT add two trips; the single locked snapshot replaces two reads.
+    expect(counted.trips() - before).toBeLessThanOrEqual(7);
     expect((await listMoves(db, id)).map((m) => m.san)).toEqual(["e4", "e5"]);
     expect(await usageSince(db, "2026-10-09")).toMatchObject([{ provider: "jev", calls: 1 }]);
   });
 
   it("refuses a move when the moves it read are not the whole game", async () => {
-    // A reply saved between the two reads would leave the move list one short of the game.
+    // A corrupt position/history snapshot must never be used to play a move.
     const behind: Db = {
       ...db,
-      query: async <T>(sql: string, params?: unknown[]) => {
-        const rows = await db.query<T>(sql, params);
-        return sql.includes("FROM moves") ? rows.slice(0, -1) : rows;
-      },
+      transaction: (fn) => db.transaction((tx) => fn({
+        query: async <T>(sql: string, params?: unknown[]) => {
+          const rows = await tx.query<T>(sql, params);
+          return sql.includes("jsonb_agg")
+            ? rows.map((row) => ({ ...row, moves: ((row as Row).moves as unknown[]).slice(0, -1) })) as T[]
+            : rows;
+        },
+      })),
     };
     const h = harness(behind, ["e5"]);
     const id = await start(h);
