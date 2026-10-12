@@ -6,11 +6,11 @@ const dev = process.env.NODE_ENV !== "production";
 // The board library styles squares inline, so styles do too.
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' https://analytics.n3el.dev${dev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  `connect-src 'self'${dev ? " ws:" : ""}`,
+  `connect-src 'self' https://analytics.n3el.dev${dev ? " ws:" : ""}`,
   "frame-src 'none'",
   "frame-ancestors 'none'",
   "object-src 'none'",
