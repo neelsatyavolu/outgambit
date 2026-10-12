@@ -108,13 +108,17 @@ describe("listOffered", () => {
     expect(offered.find((m) => m.id === "jev-latest")?.timeControls).toEqual(["1+0"]);
   });
 
-  it("never offers a stored OpenRouter or Gemini model that is not free", async () => {
+  it("never offers Grok, OpenRouter, or a Gemini model that is not free", async () => {
+    await saveSecret(db, "grok", oauth, NOW);
     await saveSecret(db, "openrouter", key, NOW);
     await saveSecret(db, "gemini", key, NOW);
+    await upsertModel(db, { provider: "grok", modelId: "grok-a", label: "Grok A", supportsEffort: true, enabled: true });
     await upsertModel(db, { provider: "openrouter", modelId: "openai/gpt-6-astra", label: "Paid", supportsEffort: true, enabled: true });
     await upsertModel(db, { provider: "openrouter", modelId: "x/y:free", label: "Free", supportsEffort: false, enabled: true });
     await upsertModel(db, { provider: "gemini", modelId: "gemini-3.1-pro-preview", label: "Pro", supportsEffort: true, enabled: true });
-    expect((await listOffered(db, loadCatalog)).map((m) => m.id)).toEqual(["x/y:free"]);
+    await upsertModel(db, { provider: "gemini", modelId: "gemini-3.1-flash-lite", label: "Lite", supportsEffort: false, enabled: true });
+    await upsertModel(db, { provider: "gemini", modelId: "gemini-3.8-flash", label: "Flash", supportsEffort: true, enabled: true });
+    expect((await listOffered(db, loadCatalog)).map((m) => m.id)).toEqual(["gemini-3.8-flash"]);
   });
 
   it("offers nothing when every model is off", async () => {

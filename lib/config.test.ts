@@ -2,20 +2,17 @@ import { describe, expect, it } from "vitest";
 import { centsPerMillionTokens, effortFor, effortsFor, findTimeControl, timeControlsFor } from "./config";
 
 describe("efforts", () => {
-  it("offers low and medium, and never high", () => {
-    expect(effortsFor("codex", "gpt-6-astra")).toEqual(["low", "medium"]);
-    expect(effortsFor("gemini", "gemini-3.8-flash")).toEqual(["low", "medium"]);
-  });
-
-  it("offers only low for the models that are too slow at medium", () => {
+  it("offers only low", () => {
+    expect(effortsFor("codex", "gpt-6-astra")).toEqual(["low"]);
     expect(effortsFor("grok", "grok-4.7")).toEqual(["low"]);
-    expect(effortsFor("grok", "grok-4.6")).toEqual(["low"]);
+    expect(effortsFor("gemini", "gemini-3.8-flash")).toEqual(["low"]);
+    expect(effortsFor("openrouter", "apodex/apodex-1.1-mini:free")).toEqual(["low"]);
   });
 
-  it("plays at the effort asked for, or the highest the model offers", () => {
+  it("plays at low even when a higher effort is asked for", () => {
     expect(effortFor("codex", "gpt-6-astra", "low")).toBe("low");
-    expect(effortFor("codex", "gpt-6-astra", "high")).toBe("medium");
-    expect(effortFor("grok", "grok-4.7", "medium")).toBe("low");
+    expect(effortFor("codex", "gpt-6-astra", "high")).toBe("low");
+    expect(effortFor("gemini", "gemini-3.8-flash", "medium")).toBe("low");
   });
 });
 

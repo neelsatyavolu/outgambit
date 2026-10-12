@@ -42,7 +42,7 @@ const GROUP_NOTES: Record<Pool, string> = {
   regular: "20+20 and slower",
 };
 
-const DEFAULT_EFFORT: Effort = "medium";
+const DEFAULT_EFFORT: Effort = "low";
 
 const keyOf = (model: Pick<OfferedModel, "provider" | "id">): string => `${model.provider}/${model.id}`;
 

@@ -29,7 +29,7 @@ export type CreateResult =
 
 // One lock for all game creation, so two requests cannot both take the last slot.
 const CREATE_LOCK = 7426001;
-const DEFAULT_EFFORT: Effort = "medium";
+const DEFAULT_EFFORT: Effort = "low";
 
 function newGame(deps: Deps, input: CreateInput, model: OfferedModel, now: number): Game | null {
   const control = findTimeControl(input.timeControl);

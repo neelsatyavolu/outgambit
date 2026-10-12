@@ -28,9 +28,9 @@ describe("ratingFor", () => {
     expect(ratingFor(ratings, model("unknown", SLOW), "medium", "regular")).toBeUndefined();
   });
 
-  it("uses the chosen effort only for models that have one", () => {
+  it("rates a model at low effort when a higher one is asked for", () => {
     const withEffort = [line("thinker", "regular", 1100, "low"), line("thinker", "regular", 1300, "medium")];
-    expect(ratingFor(withEffort, model("thinker", SLOW, true), "medium", "regular")?.rating).toBe(1300);
+    expect(ratingFor(withEffort, model("thinker", SLOW, true), "medium", "regular")?.rating).toBe(1100);
     expect(ratingFor(withEffort, model("thinker", SLOW, true), "low", "regular")?.rating).toBe(1100);
   });
 
@@ -79,7 +79,7 @@ describe("opponentGroups", () => {
       line("b", "regular", 1300, "medium"),
     ];
     expect(opponentGroups(thinkers, byEffort, "low")[0].opponents.map((o) => o.model.id)).toEqual(["a", "b"]);
-    expect(opponentGroups(thinkers, byEffort, "medium")[0].opponents.map((o) => o.model.id)).toEqual(["b", "a"]);
+    expect(opponentGroups(thinkers, byEffort, "medium")[0].opponents.map((o) => o.model.id)).toEqual(["a", "b"]);
   });
 
   it("keeps a model with no rating line, after the rated ones", () => {

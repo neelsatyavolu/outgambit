@@ -15,7 +15,6 @@ export const GEMINI_FREE_MODELS: readonly FreeModel[] = [
   { id: "gemini-3.6-flash", label: "Gemini 3.6 Flash", supportsEffort: true },
   { id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview", supportsEffort: true },
   { id: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite", supportsEffort: false },
-  { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash-Lite", supportsEffort: false },
 ];
 
 /** OpenRouter's router that only ever picks a free model. */

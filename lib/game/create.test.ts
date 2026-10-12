@@ -67,12 +67,14 @@ describe("createGame", () => {
     expect(await createGame(h.deps, input({ timeControl: "7+7" }))).toEqual({ ok: false, error: "bad_time_control" });
   });
 
-  it("keeps the chosen effort for a model that supports it, defaulting to medium", async () => {
+  it("plays at low effort, whatever is asked for", async () => {
     const h = harness(db);
     const low = await createGame(h.deps, input({ provider: "codex", model: "gpt-a", effort: "low" }));
     expect(low.ok && low.game.effort).toBe("low");
-    const unset = await createGame(h.deps, input({ playerId: "p2", provider: "codex", model: "gpt-a", effort: null }));
-    expect(unset.ok && unset.game.effort).toBe("medium");
+    const medium = await createGame(h.deps, input({ playerId: "p2", provider: "codex", model: "gpt-a", effort: "medium" }));
+    expect(medium.ok && medium.game.effort).toBe("low");
+    const unset = await createGame(h.deps, input({ playerId: "p3", provider: "codex", model: "gpt-a", effort: null }));
+    expect(unset.ok && unset.game.effort).toBe("low");
   });
 
   it("plays a model that is too slow at medium at low, whatever is asked for", async () => {

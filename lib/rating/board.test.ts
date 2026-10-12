@@ -22,14 +22,12 @@ describe("modelBoard", () => {
     ]);
   });
 
-  it("lists a slow model once per effort on offer, in the regular pool only", async () => {
-    // A rating earned at high effort, before that stopped being offered, is not listed.
+  it("lists a slow model once, at low effort, in the regular pool only", async () => {
+    // Ratings earned at higher efforts, before those stopped being offered, are not listed.
     await ensureModelRating(db, "codex/gpt-6-astra#high", "regular", 1220);
+    await ensureModelRating(db, "codex/gpt-6-astra#medium", "regular", 1100);
     const board = await modelBoard(db, [ASTRA]);
-    expect(board.map((r) => [r.effort, r.pool, r.rating])).toEqual([
-      ["medium", "regular", 1100],
-      ["low", "regular", 980],
-    ]);
+    expect(board.map((r) => [r.effort, r.pool, r.rating])).toEqual([["low", "regular", 980]]);
   });
 
   it("lists a model that only plays at low effort once", async () => {

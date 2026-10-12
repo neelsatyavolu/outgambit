@@ -1,4 +1,4 @@
-import { EFFORTS, type Effort, type Provider } from "./game/types";
+import type { Effort, Provider } from "./game/types";
 
 /**
  * What Gambit may use of the owner's accounts. Each budget is checked when a
@@ -84,15 +84,14 @@ export const MAX_INVALID_REPLIES = 3;
 export const MAX_PROVIDER_FAILURES = 2;
 
 /**
- * Models that take too long over a hard move at medium effort for a timed
- * game: about a minute or more when timed in October 2026. They play at low
- * only.
+ * The efforts a model with effort levels can be played at, lowest first.
+ * Medium takes too long over a hard move for a timed game, so every model
+ * plays at low only.
  */
-const LOW_EFFORT_ONLY: Partial<Record<Provider, readonly string[]>> = { grok: ["grok-4.7", "grok-4.6"] };
-
-/** The efforts a model with effort levels can be played at, lowest first. */
 export function effortsFor(provider: Provider, model: string): readonly Effort[] {
-  return LOW_EFFORT_ONLY[provider]?.includes(model) ? ["low"] : EFFORTS;
+  void provider;
+  void model;
+  return ["low"];
 }
 
 /** The effort a model is played at: the one asked for if the model offers it, otherwise the highest it does. */

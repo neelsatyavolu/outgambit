@@ -94,8 +94,12 @@ export async function listForOwner(q: Queryable, loadCatalog: LoadCatalog = cach
   return [...builtIn, ...custom];
 }
 
+/** Too slow for a timed game, so visitors are not offered them. */
+const HIDDEN_PROVIDERS: readonly Provider[] = ["grok", "openrouter"];
+
 /** Whether visitors may pick this model right now. */
-const isOffered = (m: OwnerModel): boolean => m.enabled && m.connected && isFreeModel(m.provider, m.id);
+const isOffered = (m: OwnerModel): boolean =>
+  m.enabled && m.connected && isFreeModel(m.provider, m.id) && !HIDDEN_PROVIDERS.includes(m.provider);
 
 const offer = (m: OwnerModel): OfferedModel => ({
   provider: m.provider,
