@@ -1,7 +1,7 @@
 # Gambit
 
 Play a full, timed game of chess against an AI model. The owner connects the
-models once; visitors pick a model, its effort and a time control, and play.
+models once; players pick a model and a time control, and play.
 
 - Design: `docs/superpowers/specs/2026-10-09-gambit-design.md`
 - Plan: `docs/superpowers/plans/2026-10-09-gambit.md`
@@ -34,16 +34,18 @@ Open `/owner` and sign in with `OWNER_PASSWORD`.
    from `shared-ai-auth` and start switched off. Gemini and OpenRouter models are
    added by ID or from the suggested list, and only free ones are accepted
    (OpenRouter `:free` variants; the Gemini list in `lib/ai/free-models.ts`).
-   Gemini is free only while the key's Google project has no billing set up. Jev appears once the TypeSafe key is saved. Mercury Decide appears once the Inception key is saved, and starts switched off. So does SubQ Snap, once the Subquadratic key is saved.
+   Gemini is free only while the key's Google project has no billing set up.
+   Grok and OpenRouter models can still be connected and ticked, but players are
+   not offered them: they were too slow for a timed game (`HIDDEN_PROVIDERS` in
+   `lib/owner/catalog.ts`). Jev appears once the TypeSafe key is saved. Mercury Decide appears once the Inception key is saved, and starts switched off. So does SubQ Snap, once the Subquadratic key is saved.
 3. **Games.** Live games are listed first. Open one to watch it; finished games
    can be stepped through.
 
 ## Accounts
 
-Signing in is optional. A visitor can create an account at `/account` with an
-email and a password to keep their stats and game history across browsers; the
-games already played in that browser move to the account. Addresses are not
-verified when an account is made.
+Games are rated, so playing needs an account. A visitor creates one at
+`/account` with an email and a password, which also keeps their stats and game
+history across browsers. Addresses are not verified when an account is made.
 
 A player who forgets their password asks for a reset link at `/account/forgot`.
 The link is emailed through [Resend](https://resend.com) from
@@ -88,10 +90,9 @@ count by the Pacific day and start again at midnight.
 LLMs get 20+20 and 45+30: a model's clock runs
 for the whole of each reply, and at anything quicker a slow reply loses it the
 game on time. Decision models (Jev, Mercury Decide, SubQ Snap, GPT-6 Luna Decisions and the ones on AI
-Gateway) get 1+0 only. A model with effort levels plays at low or medium; high
-was too slow for a timed game and is no longer offered. Grok 4.7 and 4.6 play
-at low only, since medium took them a minute or more over a hard move
-(`effortsFor` in `lib/config.ts`).
+Gateway) get 1+0 only. A model with effort levels plays at low only; medium and
+high took too long over a hard move for a timed game (`effortsFor` in
+`lib/config.ts`).
 
 Clocks and recorded move times retain integer milliseconds. A player's clock
 stops when the server has received the complete valid move request, before
@@ -107,7 +108,7 @@ the server to within 1 ms. The server decides timeouts.
 
 ## Accounts and ratings
 
-Playing needs an account. Sign-up asks for a level or chess.com ratings, which
+Sign-up asks for a level or chess.com ratings, which
 set the player's starting Elo. Every finished game then moves the player's
 rating and the model's, separately for bullet (1+0 to 5+0) and regular games.
 Models start at the estimates in `lib/rating/seeds.ts`; `/ratings` shows the
@@ -155,6 +156,10 @@ reset links are built on it and never on a request's Host header. Tables are
 created on first use. Slow models think after the response is sent, inside a
 300-second function limit; a turn that needs longer is picked up by the next
 poll. Limits by network rely on the `x-forwarded-for` header Vercel sets.
+
+Every page loads a page-view script from `analytics.n3el.dev`, the developer's
+own analytics service (`app/layout.tsx`). The site works the same if it is
+blocked.
 
 Changing `OWNER_PASSWORD` signs the owner out everywhere.
 
