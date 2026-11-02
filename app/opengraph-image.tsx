@@ -11,6 +11,19 @@ export const contentType = "image/png";
 
 const font = (file: string) => readFile(join(process.cwd(), "assets/fonts", file));
 
+// Satori sizes text without kerning but draws it with kerning, which leaves
+// uneven gaps between words at display sizes. One span per character draws
+// each glyph alone, so what it draws matches what it measured.
+function SerifLine({ text }: { text: string }) {
+  return (
+    <div style={{ display: "flex" }}>
+      {Array.from(text).map((c, i) => (
+        <span key={i}>{c === " " ? "\u00a0" : c}</span>
+      ))}
+    </div>
+  );
+}
+
 export default async function OpengraphImage() {
   const [regular, medium, serif] = await Promise.all([
     font("Geist-Regular.ttf"),
@@ -37,8 +50,8 @@ export default async function OpengraphImage() {
           <div style={{ width: 22, height: 22, borderRadius: 6, background: "#4C8DFF" }} />
           Gambit
         </div>
-        <div style={{ fontFamily: "Geist Serif", fontSize: 132, lineHeight: 1, letterSpacing: "-0.02em" }}>
-          Play a machine.
+        <div style={{ display: "flex", fontFamily: "Geist Serif", fontSize: 132, lineHeight: 1, letterSpacing: "-0.02em" }}>
+          <SerifLine text="Play a machine." />
         </div>
         <div
           style={{
