@@ -1,29 +1,18 @@
-/* Blackletter (see ~/DESIGN.md): true black canvas, Geist Serif display, Geist UI, one blue accent. */
+/* Ink & Instrument v3 (see ~/DESIGN.md): warm off-black / paper, Newsreader, Geist, Geist Mono, one blue. */
 :root {
-  --canvas: #000;
-  --card: #0a0a0c;
-  --elev: #111114;
-  --deep: #06060a;
-  --ink: #fcfdff;
-  --body: rgba(252, 253, 255, 0.86);
-  --charcoal: rgba(252, 253, 255, 0.7);
-  --mute: #a1a4a5;
-  --ash: #888e90;
-  --stone: #464a4d;
-  --line: rgba(255, 255, 255, 0.06);
-  --line-2: rgba(255, 255, 255, 0.14);
-  --primary: #fcfdff;
-  --primary-on: #000;
-  --primary-hover: #e8f0ff;
-  --accent: #4c8dff;
-  --accent-hover: #6fa3ff;
-  --accent-on: #000;
-  --tint: rgba(76, 141, 255, 0.12);
-  --ring: rgba(76, 141, 255, 0.55);
-  --ok: #3dd68c;
-  --danger: #ff4d5e;
-  --warn: #ffc53d;
-  --serif: var(--font-geist-serif), "Geist Serif", Georgia, serif;
+  --canvas:#0E0E0D;--card:#141413;--hover:#1A1A18;--deep:#090908;
+  --ink:#F2F0EA;--body:rgba(242,240,234,.86);--mute:rgba(242,240,234,.55);--stone:rgba(242,240,234,.28);
+  --line:rgba(242,240,234,.08);--line-2:rgba(242,240,234,.18);--field:rgba(242,240,234,.42);
+  --primary:#F2F0EA;--primary-on:#0E0E0D;--primary-hover:#E4E1D9;
+  --accent:#4C8DFF;--accent-hover:#6FA3FF;--accent-on:#0E0E0D;
+  --wash:rgba(76,141,255,.10);--selection:rgba(76,141,255,.35);
+  --ok:#4FBF85;--danger:#EE5A4B;--warn:#D9A23A;--scrim:rgba(9,9,8,.7);
+  /* Legacy names kept as aliases onto the four text steps and surfaces. */
+  --elev: var(--hover);
+  --charcoal: var(--body);
+  --ash: var(--mute);
+  --tint: var(--wash);
+  --serif: var(--font-newsreader), "Newsreader", Georgia, serif;
   --sans: var(--font-geist), "Geist", ui-sans-serif, system-ui, sans-serif;
   --mono: var(--font-geist-mono), "Geist Mono", ui-monospace, Menlo, monospace;
   --ease: cubic-bezier(0.2, 0, 0, 1);
@@ -35,58 +24,30 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --canvas: #fcfcfd;
-    --card: #fff;
-    --elev: #f4f5f7;
-    --deep: #0a0a0c;
-    --ink: #0a0a0c;
-    --body: rgba(10, 10, 12, 0.82);
-    --charcoal: rgba(10, 10, 12, 0.66);
-    --mute: #5f6366;
-    --ash: #7a7f82;
-    --stone: #c4c7ca;
-    --line: rgba(0, 0, 0, 0.06);
-    --line-2: rgba(0, 0, 0, 0.12);
-    --primary: #0a0a0c;
-    --primary-on: #fcfdff;
-    --primary-hover: #26262b;
-    --accent: #2f6fe0;
-    --accent-hover: #2459ba;
-    --accent-on: #fff;
-    --tint: rgba(47, 111, 224, 0.08);
-    --ring: rgba(47, 111, 224, 0.45);
-    --ok: #14915a;
-    --danger: #d92d3f;
-    --warn: #b7791f;
-    color-scheme: light;
+    --canvas:#F7F5EF;--card:#FBFAF6;--hover:#EFECE4;--deep:#141413;
+    --ink:#16161A;--body:rgba(22,22,26,.86);--mute:rgba(22,22,26,.64);--stone:rgba(22,22,26,.28);
+    --line:rgba(22,22,26,.10);--line-2:rgba(22,22,26,.22);--field:rgba(22,22,26,.5);
+    --primary:#16161A;--primary-on:#F7F5EF;--primary-hover:#2A2A2F;
+    --accent:#2A63CC;--accent-hover:#1F4FA8;--accent-on:#FFF;
+    --wash:rgba(42,99,204,.09);--selection:rgba(42,99,204,.25);
+    --ok:#1A7048;--danger:#BC2E23;--warn:#8A5E12;--scrim:rgba(22,22,26,.4);
+    color-scheme:light;
   }
 }
 
 :root[data-theme="light"] {
-  --canvas: #fcfcfd;
-  --card: #fff;
-  --elev: #f4f5f7;
-  --deep: #0a0a0c;
-  --ink: #0a0a0c;
-  --body: rgba(10, 10, 12, 0.82);
-  --charcoal: rgba(10, 10, 12, 0.66);
-  --mute: #5f6366;
-  --ash: #7a7f82;
-  --stone: #c4c7ca;
-  --line: rgba(0, 0, 0, 0.06);
-  --line-2: rgba(0, 0, 0, 0.12);
-  --primary: #0a0a0c;
-  --primary-on: #fcfdff;
-  --primary-hover: #26262b;
-  --accent: #2f6fe0;
-  --accent-hover: #2459ba;
-  --accent-on: #fff;
-  --tint: rgba(47, 111, 224, 0.08);
-  --ring: rgba(47, 111, 224, 0.45);
-  --ok: #14915a;
-  --danger: #d92d3f;
-  --warn: #b7791f;
-  color-scheme: light;
+  --canvas:#F7F5EF;--card:#FBFAF6;--hover:#EFECE4;--deep:#141413;
+    --ink:#16161A;--body:rgba(22,22,26,.86);--mute:rgba(22,22,26,.64);--stone:rgba(22,22,26,.28);
+    --line:rgba(22,22,26,.10);--line-2:rgba(22,22,26,.22);--field:rgba(22,22,26,.5);
+    --primary:#16161A;--primary-on:#F7F5EF;--primary-hover:#2A2A2F;
+    --accent:#2A63CC;--accent-hover:#1F4FA8;--accent-on:#FFF;
+    --wash:rgba(42,99,204,.09);--selection:rgba(42,99,204,.25);
+    --ok:#1A7048;--danger:#BC2E23;--warn:#8A5E12;--scrim:rgba(22,22,26,.4);
+    color-scheme:light;
+}
+
+::selection {
+  background: var(--selection);
 }
 
 * {
@@ -119,9 +80,8 @@ a:hover {
 }
 
 :focus-visible {
-  outline: 3px solid var(--ring);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 8px;
 }
 
 .shell {
@@ -139,7 +99,7 @@ a:hover {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  height: 64px;
+  height: 56px;
   background: var(--canvas);
   border-bottom: 1px solid var(--line);
   font-size: 14px;
@@ -150,15 +110,16 @@ a:hover {
   align-items: center;
   gap: 8px;
   color: var(--ink);
+  font-family: var(--serif);
   font-weight: 500;
-  font-size: 16px;
-  letter-spacing: -0.02em;
+  font-size: 21px;
+  letter-spacing: -0.01em;
 }
 
 .masthead .mark i {
-  width: 14px;
-  height: 14px;
-  border-radius: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
   background: var(--accent);
 }
 
@@ -188,8 +149,8 @@ a:hover {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line-2);
-  border-radius: 8px;
-  background: var(--elev);
+  border-radius: 4px;
+  background: transparent;
   color: var(--ink);
   cursor: pointer;
   transition: border-color 150ms var(--ease);
@@ -218,18 +179,20 @@ a:hover {
 }
 
 .label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--charcoal);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--mute);
 }
 
 .display {
   margin: 72px 0 20px;
   font-family: var(--serif);
   font-weight: 400;
-  font-size: clamp(44px, 7vw, 72px);
-  line-height: 1;
-  letter-spacing: -0.02em;
+  font-size: clamp(44px, 6.5vw, 72px);
+  line-height: 1.04;
+  letter-spacing: -0.015em;
   color: var(--ink);
   text-wrap: balance;
 }
@@ -237,9 +200,9 @@ a:hover {
 .lede {
   margin: 0 0 32px;
   max-width: 56ch;
-  font-size: 19px;
-  line-height: 1.45;
-  letter-spacing: -0.01em;
+  font-family: var(--serif);
+  font-size: 20px;
+  line-height: 1.5;
   color: var(--charcoal);
 }
 
@@ -258,16 +221,31 @@ a:hover {
 /* Figures in a card, divided by hairlines. */
 .cells {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  border: 1px solid var(--line-2);
-  border-radius: 12px;
-  background: var(--card);
-  overflow: hidden;
+  grid-template-columns: 2fr 1fr 1fr;
+  border-top: 1px solid var(--line-2);
 }
 
 .cells > * {
-  padding: 20px 24px;
+  padding: 16px 24px 0 0;
   border-right: 1px solid var(--line);
+  margin-right: 24px;
+}
+
+.cells > :first-child .figure {
+  font-size: 48px;
+  letter-spacing: -0.04em;
+}
+
+@media (max-width: 600px) {
+  .cells {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 16px;
+  }
+
+  .cells > :first-child {
+    grid-column: 1 / -1;
+    border-right: 0;
+  }
 }
 
 .cells > *:last-child {
@@ -276,9 +254,11 @@ a:hover {
 
 .cells .figure {
   display: block;
-  margin-top: 4px;
+  margin-top: 8px;
+  font-family: var(--mono);
   font-size: 28px;
-  letter-spacing: -0.03em;
+  line-height: 1;
+  letter-spacing: -0.02em;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -294,7 +274,7 @@ a:hover {
 
 .rows {
   border: 1px solid var(--line-2);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--card);
   overflow: hidden;
 }
@@ -355,8 +335,8 @@ button.row[aria-checked="true"]:hover {
 .seg {
   display: inline-flex;
   flex-wrap: wrap;
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
+  border: 1px solid var(--field);
+  border-radius: 4px;
   background: var(--card);
   overflow: hidden;
 }
@@ -402,7 +382,7 @@ button.row[aria-checked="true"]:hover {
   height: 36px;
   padding: 0 16px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--primary);
   color: var(--primary-on);
   font-family: var(--sans);
@@ -473,20 +453,20 @@ button.row[aria-checked="true"]:hover {
   width: 100%;
   height: 40px;
   padding: 0 14px;
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
+  border: 1px solid var(--field);
+  border-radius: 4px;
   background: var(--card);
   color: var(--ink);
   font: inherit;
   font-size: 14px;
   caret-color: var(--accent);
-  transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease);
+  transition: border-color 150ms var(--ease);
 }
 
 .field:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--ring);
-  outline: none;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .field::placeholder {
@@ -536,19 +516,17 @@ textarea.field {
 }
 
 .notice {
-  margin-top: 24px;
-  padding: 24px;
-  border: 1px solid var(--line-2);
-  border-radius: 12px;
-  background: var(--card);
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line-2);
 }
 
 .notice h2 {
-  margin: 0 0 6px;
-  font-weight: 500;
-  font-size: 18px;
-  line-height: 1.35;
-  letter-spacing: -0.015em;
+  margin: 0 0 8px;
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1.25;
   color: var(--ink);
 }
 
@@ -582,7 +560,7 @@ textarea.field {
   gap: 24px;
   padding: 24px;
   border: 1px solid var(--line-2);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--card);
 }
 
@@ -622,7 +600,7 @@ textarea.field {
   border-collapse: separate;
   border-spacing: 0;
   border: 1px solid var(--line-2);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--card);
   overflow: hidden;
 }
@@ -700,7 +678,7 @@ textarea.field {
 .fold {
   margin-top: 16px;
   border: 1px solid var(--line-2);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--card);
   overflow: hidden;
 }
@@ -786,7 +764,7 @@ textarea.field {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line-2);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--card);
   overflow: hidden;
 }
@@ -832,7 +810,8 @@ textarea.field {
 .clock {
   padding: 4px 12px;
   border: 1px solid var(--line-2);
-  border-radius: 8px;
+  border-radius: 4px;
+  font-family: var(--mono);
   font-size: 28px;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
@@ -1004,7 +983,7 @@ textarea.field {
   aspect-ratio: 1;
   padding: 0;
   border: 0;
-  box-shadow: inset 0 -1px 0 var(--square-dark);
+  border-bottom: 1px solid var(--square-dark);
   background: var(--square-light);
   cursor: pointer;
   transition: background 150ms var(--ease);
@@ -1015,7 +994,8 @@ textarea.field {
 }
 
 .promotion .up button {
-  box-shadow: inset 0 1px 0 var(--square-dark);
+  border-bottom: 0;
+  border-top: 1px solid var(--square-dark);
 }
 
 .promotion button:hover {
@@ -1024,7 +1004,7 @@ textarea.field {
 
 .promotion button.cancel {
   aspect-ratio: 2;
-  box-shadow: none;
+  border: 0;
   background: var(--canvas);
   color: var(--charcoal);
   font-family: var(--sans);
@@ -1135,7 +1115,7 @@ textarea.field {
   .result {
     order: 4;
     border: 1px solid var(--line-2);
-    border-radius: 12px;
+    border-radius: 6px;
   }
 
   .thinking {
@@ -1150,7 +1130,7 @@ textarea.field {
     order: 6;
     height: 160px;
     border: 1px solid var(--line-2);
-    border-radius: 12px;
+    border-radius: 6px;
     background: var(--card);
   }
 
@@ -1176,6 +1156,14 @@ textarea.field {
 
   .masthead nav {
     gap: 14px;
+    min-width: 0;
+    padding: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .masthead nav > * {
+    flex: none;
   }
 
   .masthead .tagline {
