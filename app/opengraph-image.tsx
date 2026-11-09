@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
 
-// Blackletter share card, rendered once at build time from the bundled TTFs
+// Ink & Instrument share card, rendered once at build time from the bundled TTFs
 // (satori cannot read woff2). See assets/fonts/OFL.txt for the font license.
 
 export const alt = "Gambit: play a machine. Play a full game of chess against an AI model. outgambit.n3el.dev";
@@ -28,7 +28,7 @@ export default async function OpengraphImage() {
   const [regular, medium, serif] = await Promise.all([
     font("Geist-Regular.ttf"),
     font("Geist-Medium.ttf"),
-    font("GeistSerif-Regular.ttf"),
+    font("Newsreader-Display.ttf"),
   ]);
 
   return new ImageResponse(
@@ -40,17 +40,17 @@ export default async function OpengraphImage() {
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
-          padding: "64px 72px",
+          padding: 64,
           background: "#000",
           color: "#FCFDFF",
           fontFamily: "Geist",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 28, fontWeight: 500 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 28, fontWeight: 500 }}>
           <div style={{ width: 22, height: 22, borderRadius: 6, background: "#4C8DFF" }} />
           Gambit
         </div>
-        <div style={{ display: "flex", fontFamily: "Geist Serif", fontSize: 132, lineHeight: 1, letterSpacing: "-0.02em" }}>
+        <div style={{ display: "flex", fontFamily: "Newsreader", fontSize: 132, lineHeight: 1, letterSpacing: "-0.015em" }}>
           <SerifLine text="Play a machine." />
         </div>
         <div
@@ -58,7 +58,7 @@ export default async function OpengraphImage() {
             display: "flex",
             justifyContent: "space-between",
             borderTop: "1px solid rgba(255,255,255,0.14)",
-            paddingTop: 26,
+            paddingTop: 24,
             fontSize: 22,
             color: "#888E90",
           }}
@@ -73,7 +73,7 @@ export default async function OpengraphImage() {
       fonts: [
         { name: "Geist", data: regular, weight: 400, style: "normal" },
         { name: "Geist", data: medium, weight: 500, style: "normal" },
-        { name: "Geist Serif", data: serif, weight: 400, style: "normal" },
+        { name: "Newsreader", data: serif, weight: 400, style: "normal" },
       ],
     },
   );

@@ -29,7 +29,7 @@ function Table({ lines }: { lines: RatedModel[] }) {
             <td className="num muted">{i + 1}</td>
             <td>
               {line.label}
-              <span className="meta" style={{ marginLeft: 10 }}>
+              <span className="meta" style={{ marginLeft: 8 }}>
                 {[PROVIDER_LABELS[line.provider], line.effort ? `${line.effort} effort` : null].filter(Boolean).join(" · ")}
               </span>
             </td>

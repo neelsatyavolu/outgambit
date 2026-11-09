@@ -52,8 +52,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a className="github" href="https://github.com/neelsatyavolu/outgambit" target="_blank" rel="noreferrer">
                 GitHub
               </a>
-              <ThemeToggle />
             </nav>
+            <ThemeToggle />
           </header>
           <main>{children}</main>
         </div>

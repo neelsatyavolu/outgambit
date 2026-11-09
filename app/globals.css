@@ -127,6 +127,7 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 24px;
+  margin-left: auto;
 }
 
 .masthead nav a {
@@ -142,6 +143,7 @@ a:hover {
 }
 
 .theme-toggle {
+  flex: none;
   width: 36px;
   height: 36px;
   padding: 0;
@@ -187,7 +189,7 @@ a:hover {
 }
 
 .display {
-  margin: 72px 0 20px;
+  margin: 64px 0 20px;
   font-family: var(--serif);
   font-weight: 400;
   font-size: clamp(44px, 6.5vw, 72px);
@@ -206,6 +208,10 @@ a:hover {
   color: var(--charcoal);
 }
 
+p {
+  margin-block: 16px;
+}
+
 .num {
   font-variant-numeric: tabular-nums;
 }
@@ -221,7 +227,9 @@ a:hover {
 /* Figures in a card, divided by hairlines. */
 .cells {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
+  grid-template-columns: 2fr;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
   border-top: 1px solid var(--line-2);
 }
 
@@ -236,20 +244,29 @@ a:hover {
   letter-spacing: -0.04em;
 }
 
+.cells > *:last-child {
+  border-right: 0;
+  margin-right: 0;
+}
+
+/* On a phone the lead figure takes its own line and the rest share the next one. */
 @media (max-width: 600px) {
   .cells {
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-wrap: wrap;
     row-gap: 16px;
   }
 
-  .cells > :first-child {
-    grid-column: 1 / -1;
-    border-right: 0;
+  .cells > * {
+    flex: 1 1 0;
+    min-width: 0;
   }
-}
 
-.cells > *:last-child {
-  border-right: 0;
+  .cells > :first-child {
+    flex-basis: 100%;
+    border-right: 0;
+    margin-right: 0;
+  }
 }
 
 .cells .figure {
@@ -284,6 +301,7 @@ a:hover {
   align-items: center;
   gap: 12px;
   width: 100%;
+  margin: 0;
   padding: 12px 16px;
   border: 0;
   border-bottom: 1px solid var(--line);
@@ -326,7 +344,7 @@ button.row[aria-checked="true"]:hover {
 }
 
 .group-title {
-  padding: 10px 16px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--elev);
 }
@@ -342,8 +360,8 @@ button.row[aria-checked="true"]:hover {
 }
 
 .seg button {
-  min-height: 34px;
-  padding: 0 14px;
+  min-height: 36px;
+  padding: 0 16px;
   border: 0;
   border-right: 1px solid var(--line);
   background: transparent;
@@ -445,14 +463,14 @@ button.row[aria-checked="true"]:hover {
 
 .btn.small {
   height: 28px;
-  padding: 0 10px;
+  padding: 0 12px;
   font-size: 13px;
 }
 
 .field {
   width: 100%;
-  height: 40px;
-  padding: 0 14px;
+  height: 36px;
+  padding: 0 12px;
   border: 1px solid var(--field);
   border-radius: 4px;
   background: var(--card);
@@ -480,7 +498,7 @@ select.field {
 textarea.field {
   height: auto;
   min-height: 72px;
-  padding: 10px 14px;
+  padding: 8px 12px;
   font-family: var(--mono);
   font-size: 13px;
   resize: vertical;
@@ -574,7 +592,6 @@ textarea.field {
 
 .setup-side .btn {
   width: 100%;
-  height: 40px;
   font-size: 15px;
 }
 
@@ -853,13 +870,13 @@ textarea.field {
 
 .moves td.n {
   width: 44px;
-  padding: 6px 8px 6px 16px;
+  padding: 8px 8px 8px 16px;
   color: var(--ash);
 }
 
 .moves td button {
   width: 100%;
-  padding: 6px 8px;
+  padding: 8px;
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -1026,13 +1043,14 @@ textarea.field {
 .check {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--charcoal);
   white-space: nowrap;
 }
 
 .check input,
 .row input[type="checkbox"] {
+  margin: 0;
   accent-color: var(--accent);
 }
 
@@ -1045,6 +1063,48 @@ textarea.field {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* The left step label sits level with the one inside the settings panel (24px padding + 1px border). */
+@media (min-width: 901px) {
+  .setup > .section {
+    padding-top: 24px;
+  }
+}
+
+/* Touch: every control is at least 44px. */
+@media (pointer: coarse) {
+  .btn,
+  .btn.small,
+  .seg button,
+  .field,
+  .moves td button {
+    min-height: 44px;
+  }
+
+  .theme-toggle {
+    width: 44px;
+    height: 44px;
+  }
+
+  .btn,
+  .btn.small {
+    min-width: 44px;
+  }
+
+  .masthead .mark,
+  .masthead nav a,
+  .subnav a {
+    display: inline-flex;
+    align-items: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .masthead nav a,
+  .subnav a {
+    justify-content: center;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1108,8 +1168,9 @@ textarea.field {
   }
 
   .clock {
-    padding: 2px 8px;
+    padding: 4px 8px;
     font-size: 22px;
+    line-height: 1.2;
   }
 
   .result {
@@ -1155,7 +1216,7 @@ textarea.field {
   }
 
   .masthead nav {
-    gap: 14px;
+    gap: 12px;
     min-width: 0;
     padding: 4px;
     overflow-x: auto;
@@ -1172,7 +1233,7 @@ textarea.field {
 
   .ratings-table th,
   .ratings-table td {
-    padding: 10px 8px;
+    padding: 12px 8px;
   }
 
   .ratings-table td:nth-child(2) {
